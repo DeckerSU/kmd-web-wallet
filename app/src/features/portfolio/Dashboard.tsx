@@ -6,6 +6,7 @@ import { coinByTicker } from '../../config/coins';
 import { formatAmount, shortenAddress } from '../../lib/format';
 import { useAuthStore } from '../../store/auth';
 import { usePortfolioStore, type CoinState } from '../../store/portfolio';
+import AboutModal from '../about/AboutModal';
 import SettingsModal from '../settings/SettingsModal';
 import CoinDetail from './CoinDetail';
 
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const { coins, activateAll, reset } = usePortfolioStore();
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   useEffect(() => {
     void activateAll();
@@ -42,6 +44,9 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setAboutOpen(true)} ariaLabel="About">
+            ?
+          </Button>
           <Button variant="ghost" onClick={() => setSettingsOpen(true)} ariaLabel="Settings">
             ⚙
           </Button>
@@ -51,6 +56,7 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
       {selected ? (
