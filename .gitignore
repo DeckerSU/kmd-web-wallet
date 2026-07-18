@@ -1,0 +1,11 @@
+# Operator/session-local files (not part of the app)
+/DEVELOPMENT_PLAN.md
+/1
+
+# Dependencies / build output
+node_modules/
+dist/
+
+# Logs and editor junk
+*.log
+.DS_Store
