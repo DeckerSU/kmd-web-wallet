@@ -125,5 +125,5 @@ npm run build
 - [x] Phase 2 — coin activation, balances, live event streaming
 - [x] Phase 3 — send & receive (QR)
 - [x] Phase 4 — transaction history
-- [ ] Phase 5 — polish: settings, seed viewer, mobile layout, i18n
+- [x] Phase 5 — polish: settings, seed viewer, mobile layout (i18n deferred to post-MVP)
 - [ ] Post-MVP — HD wallets, more coins, fiat prices, DEX features, Trezor
