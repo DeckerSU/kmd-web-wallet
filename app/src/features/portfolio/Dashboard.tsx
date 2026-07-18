@@ -14,7 +14,7 @@ const COIN_ICONS: Record<string, string> = { KMD: kmdIcon, KMDCL: kmdclIcon };
 const COIN_LABELS: Record<string, string> = { KMD: 'Komodo', KMDCL: 'KomodoClassic' };
 
 export default function Dashboard() {
-  const { walletName, logout } = useAuthStore();
+  const { walletName, logout, justCreated, dismissBackupReminder } = useAuthStore();
   const { coins, activateAll, reset } = usePortfolioStore();
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -59,6 +59,16 @@ export default function Dashboard() {
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
+      {justCreated && (
+        <BackupReminder
+          onBackup={() => {
+            dismissBackupReminder();
+            setSettingsOpen(true);
+          }}
+          onDismiss={dismissBackupReminder}
+        />
+      )}
+
       {selected ? (
         <CoinDetail coin={selected} onBack={() => setSelectedTicker(null)} />
       ) : (
@@ -72,6 +82,37 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function BackupReminder({
+  onBackup,
+  onDismiss,
+}: {
+  onBackup: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 text-base leading-none">⚠</span>
+        <div className="flex-1">
+          <p className="font-medium">Back up your wallet</p>
+          <p className="mt-0.5 text-amber-300/80">
+            Your seed phrase is the only way to recover this wallet. Write it down and store it
+            offline — you can view it any time from Settings.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="ghost" onClick={onBackup}>
+              Back up now
+            </Button>
+            <Button variant="ghost" onClick={onDismiss}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

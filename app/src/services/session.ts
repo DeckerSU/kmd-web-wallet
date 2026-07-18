@@ -61,16 +61,20 @@ export async function loginWallet(walletName: string, walletPassword: string): P
   await authWith({ walletName, walletPassword, allowRegistrations: false });
 }
 
-/** Create a brand-new wallet from a freshly generated mnemonic. */
+/**
+ * Register a new wallet. When `mnemonic` is omitted, KDF generates a fresh
+ * seed phrase itself (encrypting and storing it under `walletName`); pass a
+ * `mnemonic` to import an existing seed phrase instead.
+ */
 export async function createWallet(
   walletName: string,
   walletPassword: string,
-  mnemonic: string,
+  mnemonic?: string,
 ): Promise<void> {
   await authWith({
     walletName,
     walletPassword,
-    passphrase: mnemonic,
+    ...(mnemonic ? { passphrase: mnemonic } : {}),
     allowRegistrations: true,
   });
 }

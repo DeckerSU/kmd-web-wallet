@@ -27,7 +27,7 @@ service is involved; a production deployment is just static files.
 | State | zustand (+ TanStack Query planned for RPC caching) |
 | Build | Vite (SPA, no SSR — the app is fully client-side) |
 | Wallet engine | KDF `mm2_bin_lib` WASM (wasm-bindgen ES module) |
-| Seed generation | `@scure/bip39` |
+| Seed generation | KDF (generated & encrypted natively on wallet creation) |
 
 ## Repository layout
 

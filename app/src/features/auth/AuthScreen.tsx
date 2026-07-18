@@ -1,6 +1,4 @@
 import { useState } from 'react';
-import { generateMnemonic, validateMnemonic } from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { Alert, BackLink, Button, Card, Spinner, TextField } from '../../components/ui';
 import { validateWalletPassword } from '../../lib/password';
 import { useAuthStore } from '../../store/auth';
@@ -8,13 +6,7 @@ import { useAuthStore } from '../../store/auth';
 type View =
   | { name: 'list' }
   | { name: 'login'; wallet: string }
-  | { name: 'create-form'; mode: 'create' | 'import' }
-  | {
-      name: 'backup-seed';
-      walletName: string;
-      password: string;
-      mnemonic: string;
-    };
+  | { name: 'create-form'; mode: 'create' | 'import' };
 
 export default function AuthScreen() {
   const [view, setView] = useState<View>({ name: 'list' });
@@ -33,21 +25,7 @@ export default function AuthScreen() {
           <LoginForm wallet={view.wallet} onBack={() => setView({ name: 'list' })} />
         )}
         {view.name === 'create-form' && (
-          <CreateForm
-            mode={view.mode}
-            onBack={() => setView({ name: 'list' })}
-            onSeedReady={(walletName, password, mnemonic) =>
-              setView({ name: 'backup-seed', walletName, password, mnemonic })
-            }
-          />
-        )}
-        {view.name === 'backup-seed' && (
-          <BackupSeed
-            walletName={view.walletName}
-            password={view.password}
-            mnemonic={view.mnemonic}
-            onBack={() => setView({ name: 'create-form', mode: 'create' })}
-          />
+          <CreateForm mode={view.mode} onBack={() => setView({ name: 'list' })} />
         )}
       </div>
     </div>
@@ -152,11 +130,9 @@ function LoginForm({ wallet, onBack }: { wallet: string; onBack: () => void }) {
 function CreateForm({
   mode,
   onBack,
-  onSeedReady,
 }: {
   mode: 'create' | 'import';
   onBack: () => void;
-  onSeedReady: (walletName: string, password: string, mnemonic: string) => void;
 }) {
   const { wallets, create, error, phase } = useAuthStore();
   const [name, setName] = useState('');
@@ -175,7 +151,6 @@ function CreateForm({
         : null;
   const passwordError = touched ? validateWalletPassword(password) : null;
   const confirmError = touched && confirm !== password ? "Passwords don't match" : null;
-  const seedValid = validateMnemonic(seed.trim().toLowerCase(), wordlist);
   const seedError =
     mode === 'import' && touched && seed.trim().split(/\s+/).length < 12
       ? 'Enter your seed phrase (12 or 24 words)'
@@ -193,7 +168,8 @@ function CreateForm({
       return;
     }
     if (mode === 'create') {
-      onSeedReady(name.trim(), password, generateMnemonic(wordlist, 256));
+      // No seed passed — KDF generates and stores a fresh mnemonic itself.
+      void create(name.trim(), password);
     } else {
       if (seed.trim().split(/\s+/).length < 12) return;
       void create(name.trim(), password, seed.trim());
@@ -240,101 +216,23 @@ function CreateForm({
               placeholder="word1 word2 word3 …"
             />
             {seedError && <span className="mt-1 block text-xs text-red-400">{seedError}</span>}
-            {!seedError && seed.trim() && !seedValid && (
-              <span className="mt-1 block text-xs text-amber-400">
-                Not a valid BIP39 phrase — it will still be accepted (legacy/custom seed).
-              </span>
-            )}
           </label>
+        )}
+        {mode === 'create' && (
+          <Alert kind="info">
+            A new seed phrase will be generated securely on your device. Once your wallet is
+            ready, back it up from Settings → Show seed phrase.
+          </Alert>
         )}
         {error && <Alert kind="error">{error}</Alert>}
         {busy ? (
           <Spinner label="Creating wallet…" />
         ) : (
           <Button type="submit" className="w-full">
-            {mode === 'create' ? 'Continue' : 'Import wallet'}
+            {mode === 'create' ? 'Create wallet' : 'Import wallet'}
           </Button>
         )}
       </form>
-    </Card>
-  );
-}
-
-function BackupSeed({
-  walletName,
-  password,
-  mnemonic,
-  onBack,
-}: {
-  walletName: string;
-  password: string;
-  mnemonic: string;
-  onBack: () => void;
-}) {
-  const { create, error, phase } = useAuthStore();
-  const [confirmed, setConfirmed] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const busy = phase === 'authenticating';
-  const words = mnemonic.split(' ');
-
-  return (
-    <Card>
-      <BackLink onClick={onBack}>Back</BackLink>
-      <h2 className="mb-1 text-lg font-semibold">Back up your seed phrase</h2>
-      <p className="mb-4 text-sm text-zinc-400">
-        These 24 words are the only way to recover <b>{walletName}</b>. Write them down and
-        store them offline.
-      </p>
-      <ol className="mb-4 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-zinc-800 bg-zinc-950 p-4 sm:grid-cols-3">
-        {words.map((w, i) => (
-          <li key={i} className="font-mono text-sm">
-            <span className="mr-1.5 inline-block w-5 text-right text-zinc-600">{i + 1}.</span>
-            <span className="text-zinc-100">{w}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="mb-4 flex gap-2">
-        <Button
-          variant="ghost"
-          className="flex-1"
-          onClick={() => {
-            void navigator.clipboard.writeText(mnemonic).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            });
-          }}
-        >
-          {copied ? 'Copied ✓' : 'Copy to clipboard'}
-        </Button>
-      </div>
-      <Alert kind="warning">
-        Anyone with these words can spend your funds. Never share them.
-      </Alert>
-      <label className="my-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-300">
-        <input
-          type="checkbox"
-          checked={confirmed}
-          onChange={(e) => setConfirmed(e.target.checked)}
-          className="mt-0.5 h-4 w-4 accent-emerald-500"
-        />
-        I have written down my seed phrase and understand it cannot be recovered if lost.
-      </label>
-      {error && (
-        <div className="mb-4">
-          <Alert kind="error">{error}</Alert>
-        </div>
-      )}
-      {busy ? (
-        <Spinner label="Creating wallet…" />
-      ) : (
-        <Button
-          className="w-full"
-          disabled={!confirmed}
-          onClick={() => void create(walletName, password, mnemonic)}
-        >
-          Create wallet
-        </Button>
-      )}
     </Card>
   );
 }
