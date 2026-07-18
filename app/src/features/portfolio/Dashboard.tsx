@@ -6,8 +6,7 @@ import { coinByTicker } from '../../config/coins';
 import { formatAmount, shortenAddress } from '../../lib/format';
 import { useAuthStore } from '../../store/auth';
 import { usePortfolioStore, type CoinState } from '../../store/portfolio';
-import ReceiveModal from '../receive/ReceiveModal';
-import SendModal from '../send/SendModal';
+import CoinDetail from './CoinDetail';
 
 const COIN_ICONS: Record<string, string> = { KMD: kmdIcon, KMDCL: kmdclIcon };
 const COIN_LABELS: Record<string, string> = { KMD: 'Komodo', KMDCL: 'KomodoClassic' };
@@ -15,6 +14,7 @@ const COIN_LABELS: Record<string, string> = { KMD: 'Komodo', KMDCL: 'KomodoClass
 export default function Dashboard() {
   const { walletName, logout } = useAuthStore();
   const { coins, activateAll, reset } = usePortfolioStore();
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
 
   useEffect(() => {
     void activateAll();
@@ -24,6 +24,8 @@ export default function Dashboard() {
     reset();
     void logout();
   };
+
+  const selected = selectedTicker ? coins[selectedTicker] : null;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -42,21 +44,29 @@ export default function Dashboard() {
         </Button>
       </header>
 
-      <div className="space-y-4">
-        {Object.values(coins).map((coin) => (
-          <CoinCard key={coin.ticker} coin={coin} />
-        ))}
-      </div>
+      {selected ? (
+        <CoinDetail coin={selected} onBack={() => setSelectedTicker(null)} />
+      ) : (
+        <div className="space-y-4">
+          {Object.values(coins).map((coin) => (
+            <CoinCard
+              key={coin.ticker}
+              coin={coin}
+              onOpen={() => coin.status === 'active' && setSelectedTicker(coin.ticker)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function CoinCard({ coin }: { coin: CoinState }) {
+function CoinCard({ coin, onOpen }: { coin: CoinState; onOpen: () => void }) {
   const { activateCoin } = usePortfolioStore();
   const [copied, setCopied] = useState(false);
-  const [modal, setModal] = useState<'send' | 'receive' | null>(null);
 
-  const copyAddress = () => {
+  const copyAddress = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!coin.address) return;
     void navigator.clipboard.writeText(coin.address).then(() => {
       setCopied(true);
@@ -64,9 +74,18 @@ function CoinCard({ coin }: { coin: CoinState }) {
     });
   };
 
+  const clickable = coin.status === 'active';
+
   return (
-    <Card className="!p-5">
-      <div className="flex items-center gap-4">
+    <Card
+      className={`!p-5 transition ${clickable ? 'cursor-pointer hover:border-emerald-500/40' : ''}`}
+    >
+      <div
+        className="flex items-center gap-4"
+        onClick={onOpen}
+        role={clickable ? 'button' : undefined}
+        aria-label={clickable ? `Open ${coin.ticker}` : undefined}
+      >
         <img
           src={COIN_ICONS[coin.ticker]}
           alt={coin.ticker}
@@ -104,32 +123,9 @@ function CoinCard({ coin }: { coin: CoinState }) {
               )}
             </>
           )}
+          {clickable && <span className="ml-2 align-middle text-zinc-600">›</span>}
         </div>
       </div>
-      {coin.status === 'active' && coin.address && (
-        <div className="mt-4 flex gap-2">
-          <Button variant="ghost" className="flex-1" onClick={() => setModal('send')}>
-            Send
-          </Button>
-          <Button variant="ghost" className="flex-1" onClick={() => setModal('receive')}>
-            Receive
-          </Button>
-        </div>
-      )}
-      {modal === 'receive' && coin.address && (
-        <ReceiveModal
-          ticker={coin.ticker}
-          address={coin.address}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal === 'send' && (
-        <SendModal
-          ticker={coin.ticker}
-          spendable={coin.balance?.spendable ?? '0'}
-          onClose={() => setModal(null)}
-        />
-      )}
       {coin.status === 'error' && (
         <div className="mt-4 flex items-center gap-3">
           <div className="flex-1">

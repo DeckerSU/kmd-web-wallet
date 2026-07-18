@@ -184,12 +184,19 @@ class KdfClient {
   }
 }
 
-/** Generate a session-scoped RPC password satisfying KDF password rules. */
+/**
+ * Generate a session-scoped RPC password satisfying KDF's password policy:
+ * digit + lowercase + uppercase + special are guaranteed by the template, and
+ * candidates with 3 identical characters in a row (which KDF rejects — random
+ * hex hits this ~8% of the time) are re-rolled.
+ */
 export function generateRpcPassword(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  // Mixed-case + digit + special guarantees acceptance regardless of hex content.
-  return `Rp!${hex.slice(0, 8)}A${hex.slice(8, 24)}`;
+  for (;;) {
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    const candidate = `Rp!9${hex.slice(0, 8)}A${hex.slice(8, 24)}`;
+    if (!/(.)\1\1/.test(candidate)) return candidate;
+  }
 }
 
 export const kdf = new KdfClient();

@@ -86,6 +86,13 @@ export interface TransactionDetails {
   fee_details: FeeDetails;
   coin: string;
   kmd_rewards?: { amount: string; claimed_by_me: boolean };
+  /** Present in my_tx_history / TX_HISTORY stream payloads. */
+  internal_id?: string;
+  block_height?: number;
+  timestamp?: number;
+  confirmations?: number;
+  transaction_type?: string;
+  memo?: string | null;
 }
 
 export type WithdrawAmount = { amount: string } | { max: true };
@@ -119,6 +126,30 @@ export async function validateAddress(coin: string, address: string): Promise<{
     address,
   });
   return res.result;
+}
+
+export interface TxHistoryResult {
+  coin: string;
+  current_block: number;
+  transactions: TransactionDetails[];
+  sync_status: { state: 'NotEnabled' | 'NotStarted' | 'InProgress' | 'Error' | 'Finished' };
+  limit: number;
+  skipped: number;
+  total: number;
+  total_pages: number;
+}
+
+/** Paged tx history (requires tx_history: true at activation). */
+export function myTxHistory(
+  coin: string,
+  pageNumber = 1,
+  limit = 20,
+): Promise<TxHistoryResult> {
+  return kdf.rpc2<TxHistoryResult>('my_tx_history', {
+    coin,
+    limit,
+    paging_options: { PageNumber: pageNumber },
+  });
 }
 
 /** client_id defaults to 0 = the KDF wasm SharedWorker client. */
