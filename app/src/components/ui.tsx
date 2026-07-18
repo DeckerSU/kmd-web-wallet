@@ -9,6 +9,7 @@ export function Button(props: {
   disabled?: boolean;
   variant?: 'primary' | 'ghost' | 'danger';
   className?: string;
+  ariaLabel?: string;
   children: ReactNode;
 }) {
   const variants = {
@@ -23,6 +24,7 @@ export function Button(props: {
       type={props.type ?? 'button'}
       onClick={props.onClick}
       disabled={props.disabled}
+      aria-label={props.ariaLabel}
       className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed ${variants[props.variant ?? 'primary']} ${props.className ?? ''}`}
     >
       {props.children}

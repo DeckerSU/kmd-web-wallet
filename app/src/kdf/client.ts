@@ -17,6 +17,34 @@ export interface StartOutcome {
   message?: string;
 }
 
+export type LoadProgress = (loadedBytes: number, totalBytes: number | null) => void;
+
+/** Fetch a URL as bytes, reporting download progress per chunk. */
+async function fetchWithProgress(url: string, onProgress: LoadProgress): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  const lengthHeader = res.headers.get('Content-Length');
+  const total = lengthHeader ? Number(lengthHeader) : null;
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    onProgress(loaded, total);
+  }
+  const bytes = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 /**
  * Thin singleton wrapper around the KDF wasm-bindgen module.
  * Owns module loading, node lifecycle (start/stop) and the RPC transport;
@@ -35,13 +63,25 @@ class KdfClient {
     this.logHandler = handler;
   }
 
-  /** Import kdflib.js and instantiate the wasm binary (idempotent). */
-  async load(): Promise<KdfLibModule> {
+  /**
+   * Import kdflib.js and instantiate the wasm binary (idempotent).
+   * With `onProgress`, the ~36 MB wasm is fetched manually so download
+   * progress can be shown; otherwise wasm-bindgen fetches it itself.
+   */
+  async load(onProgress?: LoadProgress): Promise<KdfLibModule> {
     if (this.module) return this.module;
     this.loadPromise ??= (async () => {
       // Lazy import keeps the ~36 MB wasm out of the initial page load.
-      const mod = (await import('../kdflib/kdflib.js')) as unknown as KdfLibModule;
-      await mod.default();
+      const [mod, wasmUrl] = await Promise.all([
+        import('../kdflib/kdflib.js') as unknown as Promise<KdfLibModule>,
+        import('../kdflib/kdflib_bg.wasm?url').then((m) => m.default),
+      ]);
+      if (onProgress) {
+        const bytes = await fetchWithProgress(wasmUrl, onProgress);
+        await mod.default({ module_or_path: bytes });
+      } else {
+        await mod.default();
+      }
       this.module = mod;
       return mod;
     })().catch((e: unknown) => {

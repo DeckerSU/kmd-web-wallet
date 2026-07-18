@@ -6,6 +6,7 @@ import { coinByTicker } from '../../config/coins';
 import { formatAmount, shortenAddress } from '../../lib/format';
 import { useAuthStore } from '../../store/auth';
 import { usePortfolioStore, type CoinState } from '../../store/portfolio';
+import SettingsModal from '../settings/SettingsModal';
 import CoinDetail from './CoinDetail';
 
 const COIN_ICONS: Record<string, string> = { KMD: kmdIcon, KMDCL: kmdclIcon };
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const { walletName, logout } = useAuthStore();
   const { coins, activateAll, reset } = usePortfolioStore();
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     void activateAll();
@@ -39,10 +41,17 @@ export default function Dashboard() {
             <p className="text-xs text-zinc-500">Iguana wallet</p>
           </div>
         </div>
-        <Button variant="ghost" onClick={handleLogout}>
-          Log out
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setSettingsOpen(true)} ariaLabel="Settings">
+            ⚙
+          </Button>
+          <Button variant="ghost" onClick={handleLogout}>
+            Log out
+          </Button>
+        </div>
       </header>
+
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
       {selected ? (
         <CoinDetail coin={selected} onBack={() => setSelectedTicker(null)} />
@@ -102,7 +111,7 @@ function CoinCard({ coin, onOpen }: { coin: CoinState; onOpen: () => void }) {
             <button
               onClick={copyAddress}
               title={coin.address}
-              className="mt-0.5 font-mono text-xs text-zinc-500 transition hover:text-emerald-400"
+              className="mt-0.5 whitespace-nowrap font-mono text-xs text-zinc-500 transition hover:text-emerald-400"
             >
               {copied ? 'Copied ✓' : shortenAddress(coin.address)}
             </button>

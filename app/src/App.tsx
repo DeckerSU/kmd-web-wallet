@@ -26,12 +26,34 @@ export default function App() {
 }
 
 function BootScreen() {
+  const progress = useAuthStore((s) => s.bootProgress);
+  const mb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
+  const percent =
+    progress?.total != null
+      ? Math.min(100, Math.round((progress.loaded / progress.total) * 100))
+      : null;
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-8">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-black text-emerald-950 shadow-lg shadow-emerald-500/20">
         K
       </div>
-      <Spinner label="Loading Komodo DeFi Framework…" />
+      {progress ? (
+        <div className="w-full max-w-xs text-center">
+          <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
+              style={{ width: `${percent ?? 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-zinc-500">
+            Downloading wallet engine… {mb(progress.loaded)}
+            {progress.total != null ? ` / ${mb(progress.total)} MB (${percent}%)` : ' MB'}
+          </p>
+        </div>
+      ) : (
+        <Spinner label="Starting Komodo DeFi Framework…" />
+      )}
     </div>
   );
 }

@@ -152,6 +152,20 @@ export function myTxHistory(
   });
 }
 
+/** Reveal the wallet's seed phrase; requires the wallet password. */
+export async function getMnemonic(walletPassword: string): Promise<string> {
+  const res = await kdf.rpc2<{ format: string; mnemonic: string }>('get_mnemonic', {
+    format: 'plaintext',
+    password: walletPassword,
+  });
+  return res.mnemonic;
+}
+
+export async function kdfVersion(): Promise<string> {
+  const res = await kdf.rpc<{ result: string }>({ method: 'version' });
+  return res.result;
+}
+
 /** client_id defaults to 0 = the KDF wasm SharedWorker client. */
 export function streamBalanceEnable(coin: string): Promise<{ streamer_id: string }> {
   return kdf.rpc2<{ streamer_id: string }>('stream::balance::enable', { coin });

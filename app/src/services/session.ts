@@ -1,4 +1,4 @@
-import { generateRpcPassword, kdf } from '../kdf/client';
+import { generateRpcPassword, kdf, type LoadProgress } from '../kdf/client';
 import { buildNoAuthConf, buildStartupConf, type WalletCredentials } from '../kdf/conf';
 import { MainStatus, StartupResultCode, startupResultName } from '../kdf/types';
 
@@ -49,7 +49,8 @@ async function restartWith(conf: ReturnType<typeof buildNoAuthConf>): Promise<vo
 }
 
 /** Start (or restart) the pre-auth session and list stored wallets. */
-export async function startNoAuthSession(): Promise<string[]> {
+export async function startNoAuthSession(onLoadProgress?: LoadProgress): Promise<string[]> {
+  await kdf.load(onLoadProgress);
   await restartWith(buildNoAuthConf(generateRpcPassword()));
   const res = await kdf.rpc2<GetWalletNamesResult>('get_wallet_names');
   return res.wallet_names;

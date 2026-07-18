@@ -20,6 +20,8 @@ interface AuthState {
   walletName: string | null;
   /** Last auth error (user-facing), cleared on the next attempt. */
   error: string | null;
+  /** WASM download progress during boot (null once loaded/unknown). */
+  bootProgress: { loaded: number; total: number | null } | null;
 
   boot: () => Promise<void>;
   login: (name: string, password: string) => Promise<boolean>;
@@ -43,15 +45,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   wallets: [],
   walletName: null,
   error: null,
+  bootProgress: null,
 
   boot: () => {
     bootInFlight ??= (async () => {
       set({ phase: 'boot', error: null });
       try {
-        const wallets = await startNoAuthSession();
-        set({ phase: 'ready', wallets });
+        const wallets = await startNoAuthSession((loaded, total) =>
+          set({ bootProgress: { loaded, total } }),
+        );
+        set({ phase: 'ready', wallets, bootProgress: null });
       } catch (e) {
-        set({ phase: 'boot-error', error: userMessage(e) });
+        set({ phase: 'boot-error', error: userMessage(e), bootProgress: null });
       } finally {
         bootInFlight = null;
       }
