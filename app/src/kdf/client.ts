@@ -193,3 +193,8 @@ export function generateRpcPassword(): string {
 }
 
 export const kdf = new KdfClient();
+
+// Dev-only escape hatch for debugging RPCs from the browser console.
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__kdf = kdf;
+}

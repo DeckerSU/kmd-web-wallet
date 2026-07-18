@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Alert, Button, Card, Spinner } from './components/ui';
 import AuthScreen from './features/auth/AuthScreen';
 import DevConsole from './features/debug/DevConsole';
+import Dashboard from './features/portfolio/Dashboard';
 import { useAuthStore } from './store/auth';
 
 export default function App() {
@@ -45,31 +46,6 @@ function BootError() {
         <Button className="w-full" onClick={() => void boot()}>
           Retry
         </Button>
-      </Card>
-    </div>
-  );
-}
-
-/** Placeholder — becomes the portfolio screen in Phase 2. */
-function Dashboard() {
-  const { walletName, logout } = useAuthStore();
-  return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <header className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {walletName}
-          </h1>
-          <p className="text-sm text-zinc-400">Wallet unlocked</p>
-        </div>
-        <Button variant="ghost" onClick={() => void logout()}>
-          Log out
-        </Button>
-      </header>
-      <Card>
-        <p className="text-sm text-zinc-400">
-          Phase 2 will show KMD / KMDCL balances here.
-        </p>
       </Card>
     </div>
   );
