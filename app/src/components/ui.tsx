@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 /** Minimal in-house UI kit (Phase 1). May be replaced by shadcn/ui later. */
 
@@ -88,6 +89,41 @@ export function Spinner(props: { label?: string }) {
       <span className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-emerald-400" />
       {props.label && <span className="text-sm">{props.label}</span>}
     </div>
+  );
+}
+
+export function Modal(props: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  // Portal to <body>: ancestors with backdrop-filter/transform create stacking
+  // contexts that would otherwise paint sibling cards above this overlay.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={props.onClose}
+    >
+      <div
+        role="dialog"
+        aria-label={props.title}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-t-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl sm:rounded-2xl"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{props.title}</h2>
+          <button
+            onClick={props.onClose}
+            aria-label="Close"
+            className="rounded-lg px-2 py-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200"
+          >
+            ✕
+          </button>
+        </div>
+        {props.children}
+      </div>
+    </div>,
+    document.body,
   );
 }
 

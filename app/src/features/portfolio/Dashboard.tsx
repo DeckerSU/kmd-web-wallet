@@ -6,6 +6,8 @@ import { coinByTicker } from '../../config/coins';
 import { formatAmount, shortenAddress } from '../../lib/format';
 import { useAuthStore } from '../../store/auth';
 import { usePortfolioStore, type CoinState } from '../../store/portfolio';
+import ReceiveModal from '../receive/ReceiveModal';
+import SendModal from '../send/SendModal';
 
 const COIN_ICONS: Record<string, string> = { KMD: kmdIcon, KMDCL: kmdclIcon };
 const COIN_LABELS: Record<string, string> = { KMD: 'Komodo', KMDCL: 'KomodoClassic' };
@@ -52,6 +54,7 @@ export default function Dashboard() {
 function CoinCard({ coin }: { coin: CoinState }) {
   const { activateCoin } = usePortfolioStore();
   const [copied, setCopied] = useState(false);
+  const [modal, setModal] = useState<'send' | 'receive' | null>(null);
 
   const copyAddress = () => {
     if (!coin.address) return;
@@ -103,6 +106,30 @@ function CoinCard({ coin }: { coin: CoinState }) {
           )}
         </div>
       </div>
+      {coin.status === 'active' && coin.address && (
+        <div className="mt-4 flex gap-2">
+          <Button variant="ghost" className="flex-1" onClick={() => setModal('send')}>
+            Send
+          </Button>
+          <Button variant="ghost" className="flex-1" onClick={() => setModal('receive')}>
+            Receive
+          </Button>
+        </div>
+      )}
+      {modal === 'receive' && coin.address && (
+        <ReceiveModal
+          ticker={coin.ticker}
+          address={coin.address}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'send' && (
+        <SendModal
+          ticker={coin.ticker}
+          spendable={coin.balance?.spendable ?? '0'}
+          onClose={() => setModal(null)}
+        />
+      )}
       {coin.status === 'error' && (
         <div className="mt-4 flex items-center gap-3">
           <div className="flex-1">

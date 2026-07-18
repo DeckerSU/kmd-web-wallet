@@ -67,6 +67,60 @@ export function getEnabledCoins(): Promise<{ coins: { ticker: string }[] }> {
   return kdf.rpc2<{ coins: { ticker: string }[] }>('get_enabled_coins');
 }
 
+export interface FeeDetails {
+  type: string;
+  coin?: string;
+  amount: string;
+}
+
+/** Subset of KDF TransactionDetails the app uses. */
+export interface TransactionDetails {
+  tx_hex: string;
+  tx_hash: string;
+  from: string[];
+  to: string[];
+  total_amount: string;
+  spent_by_me: string;
+  received_by_me: string;
+  my_balance_change: string;
+  fee_details: FeeDetails;
+  coin: string;
+  kmd_rewards?: { amount: string; claimed_by_me: boolean };
+}
+
+export type WithdrawAmount = { amount: string } | { max: true };
+
+/** Build a signed transaction (not broadcast) moving funds to `to`. */
+export function withdraw(
+  coin: string,
+  to: string,
+  amount: WithdrawAmount,
+): Promise<TransactionDetails> {
+  return kdf.rpc2<TransactionDetails>('withdraw', { coin, to, ...amount });
+}
+
+/** Broadcast a signed transaction; returns the txid. */
+export async function sendRawTransaction(coin: string, txHex: string): Promise<string> {
+  const res = await kdf.rpc<{ tx_hash: string }>({
+    method: 'send_raw_transaction',
+    coin,
+    tx_hex: txHex,
+  });
+  return res.tx_hash;
+}
+
+export async function validateAddress(coin: string, address: string): Promise<{
+  is_valid: boolean;
+  reason?: string;
+}> {
+  const res = await kdf.rpc<{ result: { is_valid: boolean; reason?: string } }>({
+    method: 'validateaddress',
+    coin,
+    address,
+  });
+  return res.result;
+}
+
 /** client_id defaults to 0 = the KDF wasm SharedWorker client. */
 export function streamBalanceEnable(coin: string): Promise<{ streamer_id: string }> {
   return kdf.rpc2<{ streamer_id: string }>('stream::balance::enable', { coin });
