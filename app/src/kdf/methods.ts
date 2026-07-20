@@ -53,11 +53,37 @@ export function enableUtxoStatus(
 
 // --- ZHTLC (PIRATE/ARRR) activation -----------------------------------------
 
+export interface FirstSyncBlock {
+  /** Height the client asked to start syncing from. */
+  requested: number;
+  /** Whether the requested start is before sapling activation. */
+  is_pre_sapling: boolean;
+  /** Height sync actually started from (clamped to a checkpoint). */
+  actual: number;
+}
+
+/**
+ * ZHTLC activation returns the balance directly (CoinBalanceReport<CoinBalance>),
+ * unlike UTXO which keys it by ticker (CoinBalanceMap).
+ */
+export interface ZIguanaWalletBalance {
+  wallet_type: 'Iguana';
+  address: string;
+  balance: BalanceInfo;
+}
+
 export interface ZCoinActivationResult {
   ticker: string;
   current_block: number;
-  wallet_balance: IguanaWalletBalance;
+  wallet_balance: ZIguanaWalletBalance;
+  first_sync_block?: FirstSyncBlock;
 }
+
+/** Where a ZHTLC wallet should start scanning the chain. */
+export type SyncStartPoint =
+  | 'earliest'
+  | { height: number }
+  | { date: number };
 
 /**
  * In-progress detail of task::enable_z_coin::status. KDF serializes bare
@@ -74,16 +100,11 @@ export type ZCoinProgressDetails =
   | { BuildingWalletDb: { current_scanned_block: number; latest_block: number } }
   | { TemporaryError: string };
 
-export interface ZCoinSyncParams {
-  height?: number;
-  date?: number;
-}
-
 export async function enableZCoinInit(
   ticker: string,
   electrumServers: ElectrumServer[],
   lightWalletdServers: string[],
-  syncParams?: ZCoinSyncParams | 'earliest',
+  syncParams?: SyncStartPoint,
 ): Promise<number> {
   const res = await kdf.rpc2<{ task_id: number }>('task::enable_z_coin::init', {
     ticker,
@@ -128,6 +149,11 @@ export function myBalance(coin: string): Promise<MyBalanceResult> {
 
 export function getEnabledCoins(): Promise<{ coins: { ticker: string }[] }> {
   return kdf.rpc2<{ coins: { ticker: string }[] }>('get_enabled_coins');
+}
+
+/** Deactivate a coin (legacy disable_coin). Needed to re-activate/rescan. */
+export function disableCoin(coin: string): Promise<unknown> {
+  return kdf.rpc({ method: 'disable_coin', coin });
 }
 
 export interface FeeDetails {
@@ -245,6 +271,73 @@ export function myTxHistory(
     limit,
     paging_options: { PageNumber: pageNumber },
   });
+}
+
+/**
+ * A ZHTLC history item. Differs from TransactionDetails: numeric internal_id,
+ * a flat `transaction_fee` (no fee_details), and no tx_hex.
+ */
+interface ZCoinTxHistoryItem {
+  tx_hash: string;
+  from: string[];
+  to: string[];
+  spent_by_me: string;
+  received_by_me: string;
+  my_balance_change: string;
+  block_height: number;
+  confirmations: number;
+  timestamp: number;
+  transaction_fee: string;
+  coin: string;
+  internal_id: number;
+}
+
+interface ZCoinTxHistoryResult {
+  coin: string;
+  current_block: number;
+  transactions: ZCoinTxHistoryItem[];
+  sync_status: TxHistoryResult['sync_status'];
+  limit: number;
+  skipped: number;
+  total: number;
+  total_pages: number;
+}
+
+function normalizeZTx(t: ZCoinTxHistoryItem): TransactionDetails {
+  return {
+    tx_hex: '',
+    tx_hash: t.tx_hash,
+    from: t.from,
+    to: t.to,
+    total_amount: t.received_by_me,
+    spent_by_me: t.spent_by_me,
+    received_by_me: t.received_by_me,
+    my_balance_change: t.my_balance_change,
+    fee_details: { type: 'Utxo', coin: t.coin, amount: t.transaction_fee },
+    coin: t.coin,
+    internal_id: String(t.internal_id),
+    block_height: t.block_height,
+    timestamp: t.timestamp,
+    confirmations: t.confirmations,
+  };
+}
+
+/**
+ * ZHTLC tx history — the standard my_tx_history rejects z-coins with
+ * NotSupportedFor, so shielded coins use this dedicated method. The result is
+ * normalized to the common TxHistoryResult shape.
+ */
+export async function zCoinTxHistory(
+  coin: string,
+  pageNumber = 1,
+  limit = 20,
+): Promise<TxHistoryResult> {
+  const res = await kdf.rpc2<ZCoinTxHistoryResult>('z_coin_tx_history', {
+    coin,
+    limit,
+    paging_options: { PageNumber: pageNumber },
+  });
+  return { ...res, transactions: res.transactions.map(normalizeZTx) };
 }
 
 /** Reveal the wallet's seed phrase; requires the wallet password. */

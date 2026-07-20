@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { WALLET_COINS, type WalletCoin } from '../config/coins';
+import { WALLET_COINS, coinByTicker, type WalletCoin } from '../config/coins';
 import {
+  disableCoin,
   enableUtxoInit,
   enableUtxoStatus,
   enableZCoinInit,
@@ -9,10 +10,34 @@ import {
   streamBalanceEnable,
   streamTxHistoryEnable,
   type BalanceInfo,
+  type FirstSyncBlock,
   type IguanaWalletBalance,
+  type SyncStartPoint,
+  type ZCoinActivationResult,
   type ZCoinProgressDetails,
 } from '../kdf/methods';
 import { subscribeKdfEvents, type Unsubscribe } from '../kdf/streaming';
+
+/** Persisted per-coin sync start override (ZHTLC), survives reloads/logins. */
+const SYNC_OVERRIDE_KEY = 'kdf.syncOverride';
+function loadSyncOverride(ticker: string): SyncStartPoint | undefined {
+  try {
+    const all = JSON.parse(localStorage.getItem(SYNC_OVERRIDE_KEY) ?? '{}');
+    return all[ticker];
+  } catch {
+    return undefined;
+  }
+}
+function saveSyncOverride(ticker: string, point: SyncStartPoint | undefined): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(SYNC_OVERRIDE_KEY) ?? '{}');
+    if (point === undefined) delete all[ticker];
+    else all[ticker] = point;
+    localStorage.setItem(SYNC_OVERRIDE_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}
 
 const UTXO_ACTIVATION_TIMEOUT_MS = 120_000;
 // ZHTLC first activation downloads ~50 MB params and scans the chain; allow long.
@@ -28,6 +53,14 @@ export interface ActivationProgress {
   percent: number | null;
 }
 
+/** ZHTLC-only sync information surfaced on the coin detail screen. */
+export interface SyncInfo {
+  firstSyncBlock: FirstSyncBlock | null;
+  currentBlock: number | null;
+  /** The start override in effect (undefined = KDF default: resume / last day). */
+  startOverride: SyncStartPoint | undefined;
+}
+
 export interface CoinState {
   ticker: string;
   status: CoinStatus;
@@ -36,12 +69,16 @@ export interface CoinState {
   error: string | null;
   /** ZHTLC activation is slow — surfaced to the UI. Null for instant coins. */
   progress: ActivationProgress | null;
+  /** ZHTLC only. */
+  sync: SyncInfo | null;
 }
 
 interface PortfolioState {
   coins: Record<string, CoinState>;
   activateAll: () => Promise<void>;
   activateCoin: (coin: WalletCoin) => Promise<void>;
+  /** ZHTLC only: rewind and re-scan the chain from a new start point. */
+  rescanCoin: (ticker: string, startPoint: SyncStartPoint | undefined) => Promise<void>;
   refreshBalances: () => Promise<void>;
   reset: () => void;
 }
@@ -57,6 +94,14 @@ const initialCoins = (): Record<string, CoinState> =>
         balance: null,
         error: null,
         progress: null,
+        sync:
+          c.kind === 'zhtlc'
+            ? {
+                firstSyncBlock: null,
+                currentBlock: null,
+                startOverride: loadSyncOverride(c.config.coin),
+              }
+            : null,
       },
     ]),
   );
@@ -124,13 +169,34 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
     }
   };
 
-  const activateZhtlc = async (coin: WalletCoin) => {
+  const finishZhtlc = (ticker: string, details: ZCoinActivationResult) => {
+    const prevSync = get().coins[ticker].sync;
+    // ZHTLC balance is a direct { spendable, unspendable }, not keyed by ticker.
+    patchCoin(ticker, {
+      status: 'active',
+      address: details.wallet_balance.address,
+      balance: details.wallet_balance.balance,
+      progress: null,
+      sync: {
+        firstSyncBlock: details.first_sync_block ?? null,
+        currentBlock: details.current_block ?? null,
+        startOverride: prevSync?.startOverride,
+      },
+    });
+  };
+
+  const activateZhtlc = async (coin: WalletCoin, startOverride?: SyncStartPoint) => {
     const ticker = coin.config.coin;
-    const taskId = await enableZCoinInit(ticker, coin.electrums, coin.lightwalletd ?? []);
+    const taskId = await enableZCoinInit(
+      ticker,
+      coin.electrums,
+      coin.lightwalletd ?? [],
+      startOverride,
+    );
     const deadline = Date.now() + ZHTLC_ACTIVATION_TIMEOUT_MS;
     for (;;) {
       const res = await enableZCoinStatus(taskId);
-      if (res.status === 'Ok') return finishActivation(ticker, res.details.wallet_balance);
+      if (res.status === 'Ok') return finishZhtlc(ticker, res.details);
       if (res.status === 'Error') throw new Error(res.details.error);
       if (res.status === 'InProgress') {
         patchCoin(ticker, { progress: zProgress(res.details as ZCoinProgressDetails) });
@@ -168,12 +234,44 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
 
       try {
         if (coin.kind === 'zhtlc') {
-          await activateZhtlc(coin);
+          await activateZhtlc(coin, loadSyncOverride(ticker));
         } else {
           await activateUtxo(coin);
         }
 
         // Failing to enable streamers is not fatal — polling still works.
+        await Promise.allSettled([
+          streamBalanceEnable(ticker),
+          streamTxHistoryEnable(ticker),
+        ]);
+      } catch (e) {
+        patchCoin(ticker, {
+          status: 'error',
+          error: e instanceof Error ? e.message : String(e),
+          progress: null,
+        });
+      }
+    },
+
+    rescanCoin: async (ticker, startPoint) => {
+      const coin = coinByTicker(ticker);
+      if (!coin || coin.kind !== 'zhtlc') return;
+
+      saveSyncOverride(ticker, startPoint);
+      patchCoin(ticker, {
+        status: 'activating',
+        error: null,
+        progress: { label: 'Restarting…', percent: null },
+        sync: {
+          firstSyncBlock: null,
+          currentBlock: null,
+          startOverride: startPoint,
+        },
+      });
+
+      try {
+        await disableCoin(ticker).catch(() => {});
+        await activateZhtlc(coin, startPoint);
         await Promise.allSettled([
           streamBalanceEnable(ticker),
           streamTxHistoryEnable(ticker),

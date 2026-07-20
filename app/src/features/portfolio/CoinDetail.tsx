@@ -6,6 +6,7 @@ import TxHistoryList from '../history/TxHistoryList';
 import ReceiveModal from '../receive/ReceiveModal';
 import SendModal from '../send/SendModal';
 import { COIN_ICONS, COIN_LABELS } from './coinVisuals';
+import SyncPanel from './SyncPanel';
 
 export default function CoinDetail(props: { coin: CoinState; onBack: () => void }) {
   const { coin } = props;
@@ -56,6 +57,8 @@ export default function CoinDetail(props: { coin: CoinState; onBack: () => void 
           </div>
         </div>
       </Card>
+
+      {coin.sync && <SyncPanel coin={coin} />}
 
       <TxHistoryList ticker={coin.ticker} />
 
