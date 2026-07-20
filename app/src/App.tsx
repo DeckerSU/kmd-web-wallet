@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { BrandLogo } from './components/BrandLogo';
 import { Alert, Button, Card, Spinner } from './components/ui';
 import AuthScreen from './features/auth/AuthScreen';
 import DevConsole from './features/debug/DevConsole';
@@ -35,9 +36,7 @@ function BootScreen() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-8">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-black text-emerald-950 shadow-lg shadow-emerald-500/20">
-        K
-      </div>
+      <BrandLogo size={56} glow />
       {progress ? (
         <div className="w-full max-w-xs text-center">
           <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">

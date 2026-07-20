@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { BrandLogo } from '../../components/BrandLogo';
 import { Alert, BackLink, Button, Card, Spinner, TextField } from '../../components/ui';
 import { validateWalletPassword } from '../../lib/password';
 import { useAuthStore } from '../../store/auth';
@@ -14,9 +15,7 @@ export default function AuthScreen() {
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-black text-emerald-950 shadow-lg shadow-emerald-500/20">
-            K
-          </div>
+          <BrandLogo size={64} glow className="mx-auto mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight">KMD Wallet</h1>
           <p className="mt-1 text-sm text-zinc-400">Komodo &amp; KomodoClassic, powered by KDF</p>
         </div>

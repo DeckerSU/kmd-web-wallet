@@ -10,3 +10,4 @@ dist/
 # Logs and editor junk
 *.log
 .DS_Store
+/logo.png
