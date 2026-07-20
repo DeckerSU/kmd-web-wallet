@@ -1,15 +1,12 @@
 import { useState } from 'react';
-import kmdIcon from '../../assets/coins/kmd.png';
-import kmdclIcon from '../../assets/coins/kmdcl.png';
 import { BackLink, Button, Card } from '../../components/ui';
 import { formatAmount } from '../../lib/format';
 import type { CoinState } from '../../store/portfolio';
 import TxHistoryList from '../history/TxHistoryList';
 import ReceiveModal from '../receive/ReceiveModal';
 import SendModal from '../send/SendModal';
-
-const COIN_ICONS: Record<string, string> = { KMD: kmdIcon, KMDCL: kmdclIcon };
-const COIN_LABELS: Record<string, string> = { KMD: 'Komodo', KMDCL: 'KomodoClassic' };
+import { COIN_ICONS, COIN_LABELS } from './coinVisuals';
+import SyncPanel from './SyncPanel';
 
 export default function CoinDetail(props: { coin: CoinState; onBack: () => void }) {
   const { coin } = props;
@@ -60,6 +57,8 @@ export default function CoinDetail(props: { coin: CoinState; onBack: () => void 
           </div>
         </div>
       </Card>
+
+      {coin.sync && <SyncPanel coin={coin} />}
 
       <TxHistoryList ticker={coin.ticker} />
 
