@@ -223,7 +223,12 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
       });
       pollTimer ??= setInterval(() => void get().refreshBalances(), BALANCE_POLL_MS);
 
-      await Promise.all(WALLET_COINS.map((coin) => get().activateCoin(coin)));
+      // Only cheap coins auto-activate on login. ZHTLC coins (ARRR) are
+      // expensive (Zcash params download + chain scan), so they stay idle
+      // until the user taps Activate.
+      await Promise.all(
+        WALLET_COINS.filter((c) => c.kind !== 'zhtlc').map((coin) => get().activateCoin(coin)),
+      );
     },
 
     activateCoin: async (coin: WalletCoin) => {

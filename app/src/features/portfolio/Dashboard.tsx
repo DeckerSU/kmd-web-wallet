@@ -161,6 +161,16 @@ function CoinCard({ coin, onOpen }: { coin: CoinState; onOpen: () => void }) {
           )}
         </div>
         <div className="text-right">
+          {coin.status === 'idle' && (
+            <Button
+              onClick={() => {
+                const wc = coinByTicker(coin.ticker);
+                if (wc) void activateCoin(wc);
+              }}
+            >
+              Activate
+            </Button>
+          )}
           {coin.status === 'activating' &&
             (coin.progress ? (
               <div className="min-w-[7rem]">
