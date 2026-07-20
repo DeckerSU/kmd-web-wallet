@@ -15,7 +15,7 @@ export default function AuthScreen() {
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <BrandLogo size={64} glow className="mx-auto mb-4" />
+          <BrandLogo size={88} glow className="mx-auto mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight">KMD Wallet</h1>
           <p className="mt-1 text-sm text-zinc-400">Komodo &amp; KomodoClassic, powered by KDF</p>
         </div>
