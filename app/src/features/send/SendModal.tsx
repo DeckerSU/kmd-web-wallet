@@ -3,9 +3,12 @@ import { Alert, Button, Modal, Spinner, TextField } from '../../components/ui';
 import { coinByTicker } from '../../config/coins';
 import {
   sendRawTransaction,
+  taskWithdrawInit,
+  taskWithdrawStatus,
   validateAddress,
   withdraw,
   type TransactionDetails,
+  type WithdrawAmount,
 } from '../../kdf/methods';
 import { formatAmount } from '../../lib/format';
 import { usePortfolioStore } from '../../store/portfolio';
@@ -15,6 +18,34 @@ type Step =
   | { name: 'confirm'; tx: TransactionDetails; isMax: boolean }
   | { name: 'sent'; txid: string };
 
+const WITHDRAW_POLL_MS = 700;
+const WITHDRAW_TIMEOUT_MS = 5 * 60_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Build a signed withdrawal. ZHTLC coins (ARRR) reject the direct `withdraw`
+ * and must go through task::withdraw::init → status; memo is shielded-only.
+ */
+async function buildWithdrawal(
+  ticker: string,
+  isZhtlc: boolean,
+  to: string,
+  amount: WithdrawAmount,
+  memo?: string,
+): Promise<TransactionDetails> {
+  if (!isZhtlc) return withdraw(ticker, to, amount);
+
+  const taskId = await taskWithdrawInit(ticker, to, amount, memo);
+  const deadline = Date.now() + WITHDRAW_TIMEOUT_MS;
+  for (;;) {
+    const res = await taskWithdrawStatus(taskId);
+    if (res.status === 'Ok') return res.details;
+    if (res.status === 'Error') throw new Error(res.details.error);
+    if (Date.now() > deadline) throw new Error('Withdrawal timed out');
+    await sleep(WITHDRAW_POLL_MS);
+  }
+}
+
 export default function SendModal(props: {
   ticker: string;
   spendable: string;
@@ -22,10 +53,12 @@ export default function SendModal(props: {
 }) {
   const { ticker, spendable } = props;
   const refreshBalances = usePortfolioStore((s) => s.refreshBalances);
+  const isZhtlc = coinByTicker(ticker)?.kind === 'zhtlc';
 
   const [step, setStep] = useState<Step>({ name: 'form' });
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
+  const [memo, setMemo] = useState('');
   const [isMax, setIsMax] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,10 +72,12 @@ export default function SendModal(props: {
       if (!validation.is_valid) {
         throw new Error(validation.reason ?? 'Invalid address');
       }
-      const tx = await withdraw(
+      const tx = await buildWithdrawal(
         ticker,
+        isZhtlc,
         addr,
         isMax ? { max: true } : { amount: amount.trim() },
+        isZhtlc && memo.trim() ? memo.trim() : undefined,
       );
       setStep({ name: 'confirm', tx, isMax });
     } catch (e) {
@@ -77,7 +112,7 @@ export default function SendModal(props: {
             label="Recipient address"
             value={to}
             onChange={setTo}
-            placeholder="R…"
+            placeholder={isZhtlc ? 'zs…' : 'R…'}
             autoFocus
           />
           <div>
@@ -105,9 +140,17 @@ export default function SendModal(props: {
               Available: {formatAmount(spendable)} {ticker}
             </p>
           </div>
+          {isZhtlc && (
+            <TextField
+              label="Memo (optional)"
+              value={memo}
+              onChange={setMemo}
+              placeholder="Shielded memo"
+            />
+          )}
           {error && <Alert kind="error">{error}</Alert>}
           {busy ? (
-            <Spinner label="Building transaction…" />
+            <Spinner label={isZhtlc ? 'Building transaction (may take a while)…' : 'Building transaction…'} />
           ) : (
             <Button
               className="w-full"

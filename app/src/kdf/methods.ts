@@ -51,6 +51,69 @@ export function enableUtxoStatus(
   });
 }
 
+// --- ZHTLC (PIRATE/ARRR) activation -----------------------------------------
+
+export interface ZCoinActivationResult {
+  ticker: string;
+  current_block: number;
+  wallet_balance: IguanaWalletBalance;
+}
+
+/**
+ * In-progress detail of task::enable_z_coin::status. KDF serializes bare
+ * variants as strings ("ActivatingCoin") and data variants as single-key
+ * objects ({ UpdatingBlocksCache: { current_scanned_block, latest_block } }).
+ */
+export type ZCoinProgressDetails =
+  | 'ActivatingCoin'
+  | 'RequestingWalletBalance'
+  | 'Finishing'
+  | 'WaitingForTrezorToConnect'
+  | 'WaitingForUserToConfirmPubkey'
+  | { UpdatingBlocksCache: { current_scanned_block: number; latest_block: number } }
+  | { BuildingWalletDb: { current_scanned_block: number; latest_block: number } }
+  | { TemporaryError: string };
+
+export interface ZCoinSyncParams {
+  height?: number;
+  date?: number;
+}
+
+export async function enableZCoinInit(
+  ticker: string,
+  electrumServers: ElectrumServer[],
+  lightWalletdServers: string[],
+  syncParams?: ZCoinSyncParams | 'earliest',
+): Promise<number> {
+  const res = await kdf.rpc2<{ task_id: number }>('task::enable_z_coin::init', {
+    ticker,
+    activation_params: {
+      mode: {
+        rpc: 'Light',
+        rpc_data: {
+          electrum_servers: electrumServers,
+          light_wallet_d_servers: lightWalletdServers,
+          ...(syncParams ? { sync_params: syncParams } : {}),
+        },
+      },
+      // zcash_params_path is unnecessary in WASM — KDF fetches sapling params
+      // and caches them in IndexedDB.
+      scan_blocks_per_iteration: 1000,
+      scan_interval_ms: 0,
+    },
+  });
+  return res.task_id;
+}
+
+export function enableZCoinStatus(
+  taskId: number,
+): Promise<TaskStatus<ZCoinActivationResult>> {
+  return kdf.rpc2<TaskStatus<ZCoinActivationResult>>('task::enable_z_coin::status', {
+    task_id: taskId,
+    forget_if_finished: false,
+  });
+}
+
 export interface MyBalanceResult {
   coin: string;
   address: string;
@@ -104,6 +167,38 @@ export function withdraw(
   amount: WithdrawAmount,
 ): Promise<TransactionDetails> {
   return kdf.rpc2<TransactionDetails>('withdraw', { coin, to, ...amount });
+}
+
+// --- Task-based withdraw (ZHTLC and any coin) -------------------------------
+
+/**
+ * ZHTLC coins (ARRR) reject the direct `withdraw` — they must use
+ * task::withdraw::init → poll task::withdraw::status. Returns the same
+ * TransactionDetails as the direct withdraw once status is Ok. `memo` is
+ * optional and shielded-transaction specific.
+ */
+export async function taskWithdrawInit(
+  coin: string,
+  to: string,
+  amount: WithdrawAmount,
+  memo?: string,
+): Promise<number> {
+  const res = await kdf.rpc2<{ task_id: number }>('task::withdraw::init', {
+    coin,
+    to,
+    ...amount,
+    ...(memo ? { memo } : {}),
+  });
+  return res.task_id;
+}
+
+export function taskWithdrawStatus(
+  taskId: number,
+): Promise<TaskStatus<TransactionDetails>> {
+  return kdf.rpc2<TaskStatus<TransactionDetails>>('task::withdraw::status', {
+    task_id: taskId,
+    forget_if_finished: false,
+  });
 }
 
 /** Broadcast a signed transaction; returns the txid. */

@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react';
-import kmdIcon from '../../assets/coins/kmd.png';
-import kmdclIcon from '../../assets/coins/kmdcl.png';
 import { Alert, Button, Card, Spinner } from '../../components/ui';
 import { coinByTicker } from '../../config/coins';
 import { formatAmount, shortenAddress } from '../../lib/format';
@@ -9,9 +7,7 @@ import { usePortfolioStore, type CoinState } from '../../store/portfolio';
 import AboutModal from '../about/AboutModal';
 import SettingsModal from '../settings/SettingsModal';
 import CoinDetail from './CoinDetail';
-
-const COIN_ICONS: Record<string, string> = { KMD: kmdIcon, KMDCL: kmdclIcon };
-const COIN_LABELS: Record<string, string> = { KMD: 'Komodo', KMDCL: 'KomodoClassic' };
+import { COIN_ICONS, COIN_LABELS } from './coinVisuals';
 
 export default function Dashboard() {
   const { walletName, logout, justCreated, dismissBackupReminder } = useAuthStore();
@@ -165,7 +161,29 @@ function CoinCard({ coin, onOpen }: { coin: CoinState; onOpen: () => void }) {
           )}
         </div>
         <div className="text-right">
-          {coin.status === 'activating' && <Spinner label="Activating…" />}
+          {coin.status === 'activating' &&
+            (coin.progress ? (
+              <div className="min-w-[7rem]">
+                <div className="text-xs text-zinc-400">
+                  {coin.progress.label}
+                  {coin.progress.percent != null ? ` ${coin.progress.percent}%` : ''}
+                </div>
+                <div className="mt-1 h-1 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className={`h-full rounded-full bg-emerald-500 transition-[width] duration-300 ${
+                      coin.progress.percent == null ? 'animate-pulse w-1/3' : ''
+                    }`}
+                    style={
+                      coin.progress.percent != null
+                        ? { width: `${coin.progress.percent}%` }
+                        : undefined
+                    }
+                  />
+                </div>
+              </div>
+            ) : (
+              <Spinner label="Activating…" />
+            ))}
           {coin.status === 'active' && (
             <>
               <div className="text-lg font-semibold tabular-nums">
