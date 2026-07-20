@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { myTxHistory, type TransactionDetails } from '../../kdf/methods';
+import { coinByTicker } from '../../config/coins';
+import { myTxHistory, zCoinTxHistory, type TransactionDetails } from '../../kdf/methods';
 import { subscribeKdfEvents } from '../../kdf/streaming';
 
 const PAGE_SIZE = 20;
@@ -54,13 +55,21 @@ export function useTxHistory(ticker: string): TxHistoryState {
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
 
+  // ZHTLC coins reject my_tx_history (NotSupportedFor) — they use z_coin_tx_history.
+  const isZhtlc = coinByTicker(ticker)?.kind === 'zhtlc';
+  const fetchPage = useCallback(
+    (page: number) =>
+      isZhtlc ? zCoinTxHistory(ticker, page, PAGE_SIZE) : myTxHistory(ticker, page, PAGE_SIZE),
+    [ticker, isZhtlc],
+  );
+
   const refetchHead = useCallback(async () => {
-    const res = await myTxHistory(ticker, 1, PAGE_SIZE);
+    const res = await fetchPage(1);
     setSyncing(res.sync_status.state === 'InProgress' || res.sync_status.state === 'NotStarted');
     setTxs((prev) => mergeTxs(prev, res.transactions, 'head'));
     setHasMore(res.total_pages > pageRef.current);
     return res;
-  }, [ticker]);
+  }, [fetchPage]);
 
   // Initial load + poll while KDF is still syncing history in the background.
   useEffect(() => {
@@ -99,6 +108,12 @@ export function useTxHistory(ticker: string): TxHistoryState {
     // receive TX_HISTORY:KMDCL events.
     const unsubTx = subscribeKdfEvents(`TX_HISTORY:${ticker}`, (event) => {
       if (event.type !== `TX_HISTORY:${ticker}`) return;
+      // ZHTLC stream payloads differ from z_coin_tx_history — refetch the head
+      // rather than prepend a mismatched shape. UTXO can prepend directly.
+      if (isZhtlc) {
+        void refetchHead().catch(() => {});
+        return;
+      }
       const tx = event.message as TransactionDetails;
       if (tx?.tx_hash) setTxs((prev) => mergeTxs(prev, [tx], 'head'));
     });
@@ -110,18 +125,18 @@ export function useTxHistory(ticker: string): TxHistoryState {
       unsubTx();
       unsubBalance();
     };
-  }, [ticker, refetchHead]);
+  }, [ticker, isZhtlc, refetchHead]);
 
   const loadMore = useCallback(() => {
     const nextPage = pageRef.current + 1;
-    void myTxHistory(ticker, nextPage, PAGE_SIZE)
+    void fetchPage(nextPage)
       .then((res) => {
         pageRef.current = nextPage;
         setTxs((prev) => mergeTxs(prev, res.transactions, 'tail'));
         setHasMore(res.total_pages > nextPage);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [ticker]);
+  }, [fetchPage]);
 
   return { txs, loading, syncing, error, hasMore, loadMore };
 }
