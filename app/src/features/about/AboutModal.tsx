@@ -78,7 +78,7 @@ export default function AboutModal(props: { onClose: () => void }) {
           <div>
             <p className="font-semibold text-zinc-100">KMD Wallet</p>
             <p className="text-xs text-zinc-500">
-              A web wallet for Komodo &amp; KomodoClassic, powered by the Komodo DeFi
+              Decker&apos;s non-custodial Komodo wallet, powered by the Komodo DeFi
               Framework running as WebAssembly in your browser.
             </p>
           </div>

@@ -17,7 +17,7 @@ export default function AuthScreen() {
         <div className="mb-8 text-center">
           <BrandLogo size={88} glow className="mx-auto mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight">KMD Wallet</h1>
-          <p className="mt-1 text-sm text-zinc-400">Komodo &amp; KomodoClassic, powered by KDF</p>
+          <p className="mt-1 text-sm text-zinc-400">Decker&apos;s Komodo Wallet, powered by KDF</p>
         </div>
         {view.name === 'list' && <WalletList onNavigate={setView} />}
         {view.name === 'login' && (
