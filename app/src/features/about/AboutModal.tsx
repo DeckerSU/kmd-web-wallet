@@ -1,3 +1,4 @@
+import { BrandLogo } from '../../components/BrandLogo';
 import { Modal } from '../../components/ui';
 
 /**
@@ -73,13 +74,11 @@ export default function AboutModal(props: { onClose: () => void }) {
     <Modal title="About" onClose={props.onClose}>
       <div className="max-h-[70vh] space-y-5 overflow-y-auto pr-1 text-sm leading-relaxed text-zinc-300">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 text-xl font-black text-emerald-950">
-            K
-          </div>
+          <BrandLogo size={48} className="shrink-0" />
           <div>
             <p className="font-semibold text-zinc-100">KMD Wallet</p>
             <p className="text-xs text-zinc-500">
-              A web wallet for Komodo &amp; KomodoClassic, powered by the Komodo DeFi
+              Decker&apos;s non-custodial Komodo wallet, powered by the Komodo DeFi
               Framework running as WebAssembly in your browser.
             </p>
           </div>
