@@ -21,21 +21,41 @@ export interface ElectrumServer {
   protocol: 'WSS';
 }
 
+/** EVM JSON-RPC node, as KDF's `EthNode` expects it. */
+export interface EvmNode {
+  url: string;
+  komodo_proxy: boolean;
+}
+
 /** How the app activates and transacts with a coin. */
-export type CoinKind = 'utxo' | 'zhtlc';
+export type CoinKind = 'utxo' | 'zhtlc' | 'evm';
 
 export interface WalletCoin {
   kind: CoinKind;
   config: CoinConfig;
-  /** Only WSS electrum endpoints work in the browser (WASM). */
-  electrums: ElectrumServer[];
+  /** Smallest-unit exponent: 8 for the UTXO/ZHTLC coins, 18 for EVM. */
+  decimals: number;
+  /** UTXO/ZHTLC only. Only WSS electrum endpoints work in the browser (WASM). */
+  electrums?: ElectrumServer[];
   /** ZHTLC only: lightwalletd (gRPC-web over https) servers. */
   lightwalletd?: string[];
+  /** EVM only: JSON-RPC nodes (https or wss; both work in WASM). */
+  nodes?: EvmNode[];
+  /** EVM only: etomic swap contracts, required by `enable_eth_with_tokens`. */
+  swapContractAddress?: string;
+  fallbackSwapContract?: string;
+  /**
+   * EVM only: Blockscout base URL exposing the Etherscan-compatible
+   * `/api?module=account&action=txlist` endpoint. KDF cannot supply EVM
+   * transaction history in WASM, so history is read from here instead.
+   */
+  historyApiBase?: string;
   explorerTxUrl: (txid: string) => string;
 }
 
 export const KMD: WalletCoin = {
   kind: 'utxo',
+  decimals: 8,
   config: {
     coin: 'KMD',
     name: 'komodo',
@@ -64,6 +84,7 @@ export const KMD: WalletCoin = {
 
 export const KMDCL: WalletCoin = {
   kind: 'utxo',
+  decimals: 8,
   config: {
     coin: 'KMDCL',
     name: 'KomodoClassic',
@@ -98,6 +119,7 @@ export const KMDCL: WalletCoin = {
  */
 export const ARRR: WalletCoin = {
   kind: 'zhtlc',
+  decimals: 8,
   config: {
     coin: 'ARRR',
     asset: 'PIRATE',
@@ -152,7 +174,46 @@ export const ARRR: WalletCoin = {
   explorerTxUrl: (txid) => `https://explorer.pirate.black/tx/${txid}`,
 };
 
-export const WALLET_COINS: WalletCoin[] = [KMD, KMDCL, ARRR];
+/**
+ * GLEEC — an EVM (ETH protocol) coin on the Gleec chain, chain_id 11169.
+ * Activated in one shot via `enable_eth_with_tokens`, no task polling.
+ *
+ * `tx_history` is deliberately left off: KDF's ETH history loop is a no-op in
+ * WASM ("Transaction history is not supported for ETH/ERC20 coins"), EthCoin
+ * has no CoinWithTxHistoryV2 impl, and `stream::tx_history::enable` answers
+ * CoinNotSupported for it. History comes from the Blockscout explorer instead
+ * (see historyApiBase and kdf/evmHistory.ts).
+ */
+export const GLEEC: WalletCoin = {
+  kind: 'evm',
+  decimals: 18,
+  config: {
+    coin: 'GLEEC',
+    name: 'gleec',
+    fname: 'Gleec',
+    rpcport: 80,
+    mm2: 1,
+    chain_id: 11169,
+    required_confirmations: 3,
+    avg_blocktime: 2.6,
+    protocol: {
+      type: 'ETH',
+      protocol_data: { chain_id: 11169 },
+    },
+    derivation_path: "m/44'/60'",
+    max_eth_tx_type: 2,
+    swap_gas_fee_policy: 'Medium',
+  },
+  // From coins/ethereum/GLEEC. A wss node (wss://evm-ws.gleec.com) is also
+  // available and supported by KDF, but https needs no connection loop.
+  nodes: [{ url: 'https://evm-rpc.gleec.com', komodo_proxy: false }],
+  swapContractAddress: '0x51d9EfFc20F6965bc8DFD37E797ac52a72fcdb9D',
+  fallbackSwapContract: '0x51d9EfFc20F6965bc8DFD37E797ac52a72fcdb9D',
+  historyApiBase: 'https://evm-explorer.gleec.com',
+  explorerTxUrl: (txid) => `https://evm-explorer.gleec.com/tx/${txid}`,
+};
+
+export const WALLET_COINS: WalletCoin[] = [KMD, KMDCL, ARRR, GLEEC];
 
 export const coinByTicker = (ticker: string): WalletCoin | undefined =>
   WALLET_COINS.find((c) => c.config.coin === ticker);

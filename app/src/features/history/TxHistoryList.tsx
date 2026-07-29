@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Modal, Spinner } from '../../components/ui';
 import { coinByTicker } from '../../config/coins';
-import type { TransactionDetails } from '../../kdf/methods';
+import { feeAmount, type TransactionDetails } from '../../kdf/methods';
 import { formatAmount, shortenAddress } from '../../lib/format';
 import { useTxHistory } from './useTxHistory';
 
@@ -57,11 +57,15 @@ export default function TxHistoryList({ ticker }: { ticker: string }) {
 function txMeta(tx: TransactionDetails) {
   const change = Number(tx.my_balance_change);
   const incoming = change >= 0;
+  // Only the EVM explorer normalizer emits 'Failed' — a reverted transaction
+  // that still burned gas, so it must not read as an ordinary transfer.
+  const failed = tx.transaction_type === 'Failed';
   return {
     incoming,
-    label: incoming ? 'Received' : 'Sent',
+    failed,
+    label: failed ? 'Failed' : incoming ? 'Received' : 'Sent',
     sign: incoming ? '+' : '',
-    color: incoming ? 'text-emerald-400' : 'text-zinc-200',
+    color: failed ? 'text-rose-400' : incoming ? 'text-emerald-400' : 'text-zinc-200',
   };
 }
 
@@ -91,10 +95,14 @@ function TxRow(props: {
       >
         <span
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base ${
-            meta.incoming ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-800 text-zinc-300'
+            meta.failed
+              ? 'bg-rose-500/15 text-rose-400'
+              : meta.incoming
+                ? 'bg-emerald-500/15 text-emerald-400'
+                : 'bg-zinc-800 text-zinc-300'
           }`}
         >
-          {meta.incoming ? '↓' : '↑'}
+          {meta.failed ? '✕' : meta.incoming ? '↓' : '↑'}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">
@@ -125,7 +133,10 @@ function TxDetailsModal(props: {
   const { tx, ticker } = props;
   const meta = txMeta(tx);
   const conf = tx.confirmations ?? 0;
-  const explorerTxUrl = coinByTicker(ticker)?.explorerTxUrl;
+  const coin = coinByTicker(ticker);
+  const explorerTxUrl = coin?.explorerTxUrl;
+  // Full precision here — the list rows trim to 8 fraction digits to stay readable.
+  const decimals = coin?.decimals ?? 8;
   const counterparties = meta.incoming
     ? tx.from
     : tx.to.filter((a) => !tx.from.includes(a));
@@ -135,7 +146,7 @@ function TxDetailsModal(props: {
       <div className="space-y-3">
         <p className={`text-center text-2xl font-semibold tabular-nums ${meta.color}`}>
           {meta.sign}
-          {formatAmount(tx.my_balance_change)} {tx.coin}
+          {formatAmount(tx.my_balance_change, decimals)} {tx.coin}
         </p>
         <p className="text-center text-xs text-zinc-500">{formatDate(tx.timestamp)}</p>
 
@@ -143,21 +154,29 @@ function TxDetailsModal(props: {
           <DetailRow
             label="Status"
             value={
-              conf >= props.requiredConf
-                ? `Confirmed (${conf})`
-                : conf > 0
-                  ? `Confirming ${conf}/${props.requiredConf}`
-                  : 'Pending'
+              meta.failed
+                ? 'Failed (gas spent)'
+                : conf >= props.requiredConf
+                  ? `Confirmed (${conf})`
+                  : conf > 0
+                    ? `Confirming ${conf}/${props.requiredConf}`
+                    : 'Pending'
             }
           />
           <DetailRow
             label={meta.incoming ? 'From' : 'To'}
-            value={(counterparties.length ? counterparties : tx.to).map(shortenAddress).join(', ')}
+            // Wrap the call: a bare `.map(shortenAddress)` would pass the array
+            // index as `chars`, and chars=0 renders the whole address.
+            value={(counterparties.length ? counterparties : tx.to)
+              .map((a) => shortenAddress(a))
+              .join(', ')}
             mono
           />
           <DetailRow
             label="Fee"
-            value={`${formatAmount(tx.fee_details.amount)} ${tx.fee_details.coin ?? ticker}`}
+            value={`${formatAmount(feeAmount(tx.fee_details), decimals)} ${
+              tx.fee_details.coin ?? ticker
+            }`}
           />
           {tx.block_height ? <DetailRow label="Block" value={String(tx.block_height)} /> : null}
           <DetailRow label="Txid" value={shortenAddress(tx.tx_hash, 10)} mono />

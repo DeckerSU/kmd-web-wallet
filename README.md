@@ -1,13 +1,15 @@
 # KMD Web Wallet
 
-A modern, non-custodial web wallet for **Komodo (KMD)** and **KomodoClassic (KMDCL)**,
+A modern, non-custodial web wallet for **Komodo (KMD)**, **KomodoClassic (KMDCL)**,
+**Pirate (ARRR)** and **Gleec (GLEEC)**,
 built with React and powered by the
 [Komodo DeFi Framework](https://github.com/KomodoPlatform/komodo-defi-framework) (KDF)
 running entirely in the browser as a WebAssembly module.
 
 Everything happens client-side: the KDF node runs in the page, connects to Electrum
-servers over WSS, and stores encrypted wallets in the browser's IndexedDB. No backend
-service is involved; a production deployment is just static files.
+servers over WSS (and to EVM JSON-RPC nodes over HTTPS), and stores encrypted wallets
+in the browser's IndexedDB. No backend service is involved; a production deployment is
+just static files.
 
 ## Features
 
@@ -15,9 +17,15 @@ service is involved; a production deployment is just static files.
   step), import an existing seed phrase, unlock by password, log out. Wallets are stored
   encrypted in IndexedDB by KDF itself.
 - **Single-address (iguana) mode** — one address per coin (`enable_hd: false`).
-- **Coins** — KMD and KMDCL (UTXO, Electrum over WSS). More coins are planned.
-- Planned next: balances with live event streaming, send, receive (QR), transaction
-  history. See the roadmap below.
+- **Coins** — three protocol families, each with balances, send, receive (QR) and
+  transaction history:
+  | Coin | Protocol | Activation | Transaction history |
+  |---|---|---|---|
+  | KMD, KMDCL | UTXO (Electrum over WSS) | `task::enable_utxo`, instant | `my_tx_history` (v2) |
+  | ARRR | ZHTLC / shielded (lightwalletd) | `task::enable_z_coin`, on demand — sapling params + chain scan | `z_coin_tx_history` |
+  | GLEEC | EVM / ETH (JSON-RPC over HTTPS) | `enable_eth_with_tokens`, instant | Blockscout explorer (see below) |
+- **Live balances** over KDF's event streaming (`stream::balance::enable`), with a 30 s
+  poll as a fallback.
 
 ## Tech stack
 
@@ -40,6 +48,9 @@ app/
     kdf/                        # framework integration layer (no React)
       client.ts                 #   KdfClient: load/start/stop lifecycle + RPC transport
       conf.ts                   #   mm2_main startup config builders (auth / no-auth)
+      methods.ts                #   typed wrappers over the KDF RPC methods used
+      evmHistory.ts             #   EVM tx history from a Blockscout explorer (not KDF)
+      streaming.ts              #   SharedWorker client for KDF stream events
       types.ts                  #   types over the wasm-bindgen module
     services/session.ts         # wallet session orchestration (login = node restart)
     store/                      # zustand stores
@@ -87,7 +98,29 @@ Defined in `app/src/config/`:
   `staking1/staking2.gleec.com`) are dialed over WSS on port 32336.
 - **Electrum servers** (WSS only — plain TCP/SSL sockets are not available to browser
   code): `kmd.electrum{1,2,3}.cipig.net:30001` for KMD,
-  `electrum.kmdclassic.com:50004` for KMDCL.
+  `electrum.kmdclassic.com:50004` for KMDCL,
+  `arrr.electrum{1,2,3}.cipig.net:30008` plus lightwalletd on
+  `electrum{1,2,3}.cipig.net:19447` for ARRR.
+- **EVM JSON-RPC:** `https://evm-rpc.gleec.com` for GLEEC (chain_id `11169`). KDF also
+  supports `wss://evm-ws.gleec.com`, but HTTPS needs no connection loop.
+
+### EVM transaction history
+
+GLEEC history does **not** come from KDF — it cannot, in a browser:
+
+- `EthCoin::process_history_loop` is compiled out under `wasm32` and only logs
+  *"Transaction history is not supported for ETH/ERC20 coins"*;
+- `EthCoin` has no `CoinWithTxHistoryV2` impl, so `my_tx_history` (v2) rejects it;
+- `stream::tx_history::enable` answers `CoinNotSupported` for it.
+
+So `src/kdf/evmHistory.ts` reads the Etherscan-compatible endpoint of the chain's
+Blockscout instance (`https://evm-explorer.gleec.com/api?module=account&action=txlist`),
+which sends `Access-Control-Allow-Origin: *`, and normalizes rows into KDF's
+`TransactionDetails` shape so the rest of the app stays protocol-agnostic. This is the
+same approach the reference Flutter wallet takes for EVM assets. Note that only "normal"
+transactions are listed — GLEEC moved by a contract call (an internal transfer) does not
+appear. Because the endpoint reports no total count, "load more" is inferred from a full
+page, and confirmations are refreshed on a 30 s timer instead of a stream.
 
 ## Updating the KDF WASM bundle
 
@@ -126,4 +159,6 @@ npm run build
 - [x] Phase 3 — send & receive (QR)
 - [x] Phase 4 — transaction history
 - [x] Phase 5 — polish: settings, seed viewer, mobile layout (i18n deferred to post-MVP)
-- [ ] Post-MVP — HD wallets, more coins, fiat prices, DEX features, Trezor
+- [x] Post-MVP — PIRATE (ARRR) shielded coin; GLEEC (EVM) with instant activation,
+      send/receive and explorer-backed history
+- [ ] Next — HD wallets, ERC20-style tokens on GLEEC, fiat prices, DEX features, Trezor

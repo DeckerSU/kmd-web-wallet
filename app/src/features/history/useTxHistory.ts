@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { coinByTicker } from '../../config/coins';
+import { evmTxHistory } from '../../kdf/evmHistory';
 import { myTxHistory, zCoinTxHistory, type TransactionDetails } from '../../kdf/methods';
 import { subscribeKdfEvents } from '../../kdf/streaming';
+import { usePortfolioStore } from '../../store/portfolio';
 
 const PAGE_SIZE = 20;
 const SYNC_POLL_MS = 3000;
+/**
+ * EVM history has no stream to ride: KDF exposes no tx-history streamer for
+ * ETH coins, and the balance streamer only fires when the balance changes — so
+ * confirmation counts would freeze. Re-read the head on a timer instead.
+ */
+const EVM_REFRESH_MS = 30_000;
 
 const txKey = (tx: TransactionDetails) => tx.internal_id ?? tx.tx_hash;
 
@@ -55,21 +63,41 @@ export function useTxHistory(ticker: string): TxHistoryState {
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
 
-  // ZHTLC coins reject my_tx_history (NotSupportedFor) — they use z_coin_tx_history.
-  const isZhtlc = coinByTicker(ticker)?.kind === 'zhtlc';
+  const coin = coinByTicker(ticker);
+  // ZHTLC coins reject my_tx_history (NotSupportedFor) — they use
+  // z_coin_tx_history. EVM coins have no KDF history at all under WASM and are
+  // served from the chain explorer, which needs the wallet address.
+  const isZhtlc = coin?.kind === 'zhtlc';
+  const isEvm = coin?.kind === 'evm';
+  const address = usePortfolioStore((s) => s.coins[ticker]?.address ?? null);
+
   const fetchPage = useCallback(
-    (page: number) =>
-      isZhtlc ? zCoinTxHistory(ticker, page, PAGE_SIZE) : myTxHistory(ticker, page, PAGE_SIZE),
-    [ticker, isZhtlc],
+    (page: number) => {
+      if (isEvm) {
+        if (!coin || !address) {
+          return Promise.reject(new Error(`${ticker} is not activated yet`));
+        }
+        return evmTxHistory(coin, address, page, PAGE_SIZE);
+      }
+      return isZhtlc
+        ? zCoinTxHistory(ticker, page, PAGE_SIZE)
+        : myTxHistory(ticker, page, PAGE_SIZE);
+    },
+    [ticker, coin, isZhtlc, isEvm, address],
   );
 
   const refetchHead = useCallback(async () => {
     const res = await fetchPage(1);
     setSyncing(res.sync_status.state === 'InProgress' || res.sync_status.state === 'NotStarted');
     setTxs((prev) => mergeTxs(prev, res.transactions, 'head'));
-    setHasMore(res.total_pages > pageRef.current);
+    // The explorer reports no total count, so an EVM page-1 result can only say
+    // "there is at least a page 2" — it must not retract a `hasMore` that
+    // paging past page 1 already established.
+    setHasMore((prev) =>
+      isEvm && pageRef.current > 1 ? prev : res.total_pages > pageRef.current,
+    );
     return res;
-  }, [fetchPage]);
+  }, [fetchPage, isEvm]);
 
   // Initial load + poll while KDF is still syncing history in the background.
   useEffect(() => {
@@ -101,6 +129,13 @@ export function useTxHistory(ticker: string): TxHistoryState {
       if (timer) clearTimeout(timer);
     };
   }, [refetchHead]);
+
+  // EVM: keep confirmations moving with a periodic head re-read.
+  useEffect(() => {
+    if (!isEvm) return;
+    const timer = setInterval(() => void refetchHead().catch(() => {}), EVM_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [isEvm, refetchHead]);
 
   // Live updates from the event stream.
   useEffect(() => {

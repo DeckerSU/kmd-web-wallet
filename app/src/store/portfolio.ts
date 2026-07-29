@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { WALLET_COINS, coinByTicker, type WalletCoin } from '../config/coins';
 import {
   disableCoin,
+  enableEthWithTokens,
   enableUtxoInit,
   enableUtxoStatus,
   enableZCoinInit,
@@ -46,6 +47,13 @@ const ACTIVATION_POLL_MS = 500;
 const BALANCE_POLL_MS = 30_000;
 
 export type CoinStatus = 'idle' | 'activating' | 'active' | 'error';
+
+/** One entry of a BALANCE:<ticker> stream event payload. */
+interface BalanceEventEntry {
+  ticker?: string;
+  address?: string;
+  balance?: BalanceInfo;
+}
 
 export interface ActivationProgress {
   label: string;
@@ -158,7 +166,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
 
   const activateUtxo = async (coin: WalletCoin) => {
     const ticker = coin.config.coin;
-    const taskId = await enableUtxoInit(ticker, coin.electrums);
+    const taskId = await enableUtxoInit(ticker, coin.electrums ?? []);
     const deadline = Date.now() + UTXO_ACTIVATION_TIMEOUT_MS;
     for (;;) {
       const res = await enableUtxoStatus(taskId);
@@ -167,6 +175,23 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
       if (Date.now() > deadline) throw new Error('Activation timed out');
       await sleep(ACTIVATION_POLL_MS);
     }
+  };
+
+  /** EVM activation is a single RPC — no task, so it completes immediately. */
+  const activateEvm = async (coin: WalletCoin) => {
+    const ticker = coin.config.coin;
+    const res = await enableEthWithTokens(
+      ticker,
+      coin.nodes ?? [],
+      coin.swapContractAddress,
+      coin.fallbackSwapContract,
+    );
+    patchCoin(ticker, {
+      status: 'active',
+      address: res.address,
+      balance: res.balance,
+      progress: null,
+    });
   };
 
   const finishZhtlc = (ticker: string, details: ZCoinActivationResult) => {
@@ -189,7 +214,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
     const ticker = coin.config.coin;
     const taskId = await enableZCoinInit(
       ticker,
-      coin.electrums,
+      coin.electrums ?? [],
       coin.lightwalletd ?? [],
       startOverride,
     );
@@ -211,14 +236,14 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
 
     activateAll: async () => {
       // Live balance updates over the KDF event stream; poll as a fallback.
+      // Both the UTXO and ETH streamers broadcast an *array* of per-address
+      // updates, so the payload is always normalized to a list.
       unsubscribeEvents ??= subscribeKdfEvents('BALANCE:', (event) => {
-        const msg = event.message as {
-          ticker?: string;
-          address?: string;
-          balance?: BalanceInfo;
-        };
-        if (msg?.ticker && msg.balance) {
-          patchCoin(msg.ticker, { balance: msg.balance });
+        const msg = event.message as BalanceEventEntry | BalanceEventEntry[];
+        for (const entry of Array.isArray(msg) ? msg : [msg]) {
+          if (entry?.ticker && entry.balance && get().coins[entry.ticker]) {
+            patchCoin(entry.ticker, { balance: entry.balance });
+          }
         }
       });
       pollTimer ??= setInterval(() => void get().refreshBalances(), BALANCE_POLL_MS);
@@ -240,14 +265,18 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
       try {
         if (coin.kind === 'zhtlc') {
           await activateZhtlc(coin, loadSyncOverride(ticker));
+        } else if (coin.kind === 'evm') {
+          await activateEvm(coin);
         } else {
           await activateUtxo(coin);
         }
 
         // Failing to enable streamers is not fatal — polling still works.
+        // EVM coins have no tx-history streamer in KDF (CoinNotSupported), so
+        // only the balance streamer is requested for them.
         await Promise.allSettled([
           streamBalanceEnable(ticker),
-          streamTxHistoryEnable(ticker),
+          ...(coin.kind === 'evm' ? [] : [streamTxHistoryEnable(ticker)]),
         ]);
       } catch (e) {
         patchCoin(ticker, {
