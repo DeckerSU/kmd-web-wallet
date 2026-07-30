@@ -103,6 +103,15 @@ does not travel, so a synced passkey would unlock nothing elsewhere. A useful
 side effect is that the authenticator stores nothing, so wallet names never
 appear in the OS passkey manager.
 
+**Two-phase enrolment.** Providers disagree on when they release the PRF secret:
+some return it from `create()`, others only from a later assertion. That second
+ceremony is never chained automatically — Google Password Manager on Linux
+accepts the PIN, closes its dialog, and then leaves a gesture-less `get()`
+pending forever, which shows up as a wallet creation that silently never
+finishes. Instead the UI asks the user to confirm once more, so the assertion
+runs behind a real click. Every ceremony also has a hard timeout, since
+WebAuthn's own `timeout` is only a hint the platform may ignore.
+
 **What this does and does not protect.** The relying party is the page itself —
 there is no server to verify an assertion against, so this is not protection
 against a forged login. What it gives is protection at rest: a copy of the

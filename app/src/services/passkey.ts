@@ -22,46 +22,88 @@ import {
 export { PasskeyCancelled, PasskeyError };
 
 /**
- * Create a passkey for `walletName` protecting `password`.
+ * A credential that exists but whose PRF secret still has to be fetched by a
+ * second, user-initiated ceremony. Carries everything needed to finish.
+ */
+export interface PendingEnrollment {
+  walletName: string;
+  password: string;
+  salt: Uint8Array;
+  credentialId: string;
+  userId: string;
+  transports: string[];
+}
+
+export type EnrollmentStep =
+  | { done: true; password: string }
+  | { done: false; pending: PendingEnrollment };
+
+/**
+ * Phase one: create the credential and, if the provider hands the PRF secret
+ * over immediately, finish there and then.
+ *
+ * When it doesn't, this returns `done: false` instead of quietly running the
+ * assertion itself. Google Password Manager on Linux takes the PIN, dismisses
+ * its dialog and then leaves a chained `get()` pending forever — so the second
+ * ceremony has to come from a fresh user action, which only the UI can arrange.
  *
  * Pass an existing password to attach a passkey to a wallet that already has
- * one; omit it to have a fresh password generated. Returns the password so the
- * caller can both start KDF with it and show it to the user — with a passkey
- * that display is the user's only chance to record it.
- *
- * Nothing is persisted until the wrap has been verified by unwrapping it again,
- * so a record that cannot be opened later is never written.
+ * one; omit it to have a fresh password generated.
  */
-export async function enrollPasskey(
+export async function beginEnrollment(
   walletName: string,
   password?: string,
-): Promise<string> {
+): Promise<EnrollmentStep> {
   const walletPassword = password ?? generateWalletPassword();
   const salt = randomBytes(32);
-
   const cred = await registerPasskey(walletName, salt);
-  const wrapped = await wrapSecret(cred.prfSecret, salt, walletName, walletPassword);
 
-  // Round-trip check: proves the stored ciphertext is openable with the secret
-  // this authenticator produces, before it becomes the only copy.
-  const check = await unwrapSecret(cred.prfSecret, salt, walletName, wrapped);
-  if (check !== walletPassword) {
+  const pending: PendingEnrollment = {
+    walletName,
+    password: walletPassword,
+    salt,
+    credentialId: cred.credentialId,
+    userId: cred.userId,
+    transports: cred.transports,
+  };
+
+  if (!cred.prfSecret) return { done: false, pending };
+  await persist(pending, cred.prfSecret);
+  return { done: true, password: walletPassword };
+}
+
+/** Phase two: re-run the ceremony from a user gesture and store the result. */
+export async function completeEnrollment(pending: PendingEnrollment): Promise<string> {
+  const secret = await readPrfSecret(pending.credentialId, pending.salt);
+  await persist(pending, secret);
+  return pending.password;
+}
+
+/**
+ * Wrap and store, but only after proving the ciphertext round-trips with the
+ * secret this authenticator produces — a record that cannot be opened later
+ * would strand the wallet.
+ */
+async function persist(pending: PendingEnrollment, prfSecret: ArrayBuffer): Promise<void> {
+  const { walletName, salt, password } = pending;
+  const wrapped = await wrapSecret(prfSecret, salt, walletName, password);
+  const check = await unwrapSecret(prfSecret, salt, walletName, wrapped);
+  if (check !== password) {
     throw new PasskeyError('Passkey verification failed — the wallet password was not stored.');
   }
 
   const record: PasskeyRecord = {
     walletName,
-    credentialId: cred.credentialId,
-    userId: cred.userId,
+    credentialId: pending.credentialId,
+    userId: pending.userId,
     prfSalt: toBase64(salt),
     wrapped,
-    transports: cred.transports,
+    transports: pending.transports,
     createdAt: Date.now(),
     lastUsedAt: null,
     version: 1,
   };
   await savePasskey(record);
-  return walletPassword;
 }
 
 /**

@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import { listPasskeys, pruneOrphans } from '../lib/passkeyStore';
 import { isPasskeySupported, isPrfLikelyAvailable } from '../lib/webauthn';
 import {
-  enrollPasskey,
+  beginEnrollment,
+  completeEnrollment,
   PasskeyCancelled,
   removePasskey,
   unlockPassword,
+  type PendingEnrollment,
 } from '../services/passkey';
 import {
   createWallet,
@@ -47,6 +49,12 @@ interface AuthState {
    * soon as the backup step is acknowledged.
    */
   generatedPassword: string | null;
+  /**
+   * Set when a passkey was created but its provider withheld the PRF secret,
+   * so the user has to confirm once more. Drives the confirm button in the UI;
+   * the second ceremony must be triggered by that click, never automatically.
+   */
+  pendingPasskey: { pending: PendingEnrollment; mnemonic?: string } | null;
 
   boot: () => Promise<void>;
   login: (name: string, password: string) => Promise<boolean>;
@@ -62,6 +70,9 @@ interface AuthState {
    * typed, and surfaced through `generatedPassword` for the backup step.
    */
   createWithPasskey: (name: string, mnemonic?: string) => Promise<boolean>;
+  /** Finish an enrolment that needed a second, user-initiated confirmation. */
+  confirmPendingPasskey: () => Promise<boolean>;
+  cancelPendingPasskey: () => void;
   /** Attach a passkey to the wallet in the current session. */
   addPasskey: (name: string, password: string) => Promise<string | null>;
   forgetPasskey: (name: string) => Promise<void>;
@@ -82,6 +93,35 @@ function userMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+type SetAuthState = (partial: Partial<AuthState>) => void;
+
+/**
+ * Register the wallet in KDF once a password is finally in hand, rolling the
+ * passkey back if KDF refuses — a credential guarding a wallet that was never
+ * created would just be litter the user has to clean up by hand.
+ */
+async function finishCreate(
+  set: SetAuthState,
+  name: string,
+  password: string,
+  mnemonic?: string,
+): Promise<boolean> {
+  try {
+    await createWallet(name, password, mnemonic);
+  } catch (e) {
+    await removePasskey(name).catch(() => {});
+    throw e;
+  }
+  set({
+    phase: 'authenticated',
+    walletName: name,
+    justCreated: !mnemonic,
+    generatedPassword: password,
+    passkeyWallets: await loadPasskeyWallets(),
+  });
+  return true;
+}
+
 /** Names of wallets with a passkey record, for the login list's key badges. */
 async function loadPasskeyWallets(): Promise<string[]> {
   try {
@@ -98,6 +138,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
   bootProgress: null,
   justCreated: false,
+  pendingPasskey: null,
   passkeySupported: false,
   passkeyWallets: [],
   generatedPassword: null,
@@ -171,34 +212,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   createWithPasskey: async (name, mnemonic) => {
-    set({ phase: 'authenticating', error: null });
+    set({ phase: 'authenticating', error: null, pendingPasskey: null });
     try {
       // Enrol first: if the passkey ceremony fails we must not be left with a
       // wallet whose generated password nobody has ever seen.
-      const password = await enrollPasskey(name);
-      try {
-        await createWallet(name, password, mnemonic);
-      } catch (e) {
-        await removePasskey(name).catch(() => {});
-        throw e;
+      const step = await beginEnrollment(name);
+      if (!step.done) {
+        // Provider withheld the PRF secret; park it until the user confirms.
+        set({ phase: 'ready', pendingPasskey: { pending: step.pending, mnemonic } });
+        return false;
       }
-      set({
-        phase: 'authenticated',
-        walletName: name,
-        justCreated: !mnemonic,
-        generatedPassword: password,
-        passkeyWallets: await loadPasskeyWallets(),
-      });
-      return true;
+      return await finishCreate(set, name, step.password, mnemonic);
     } catch (e) {
       set({ phase: 'ready', error: e instanceof PasskeyCancelled ? null : userMessage(e) });
       return false;
     }
   },
 
+  confirmPendingPasskey: async () => {
+    const parked = get().pendingPasskey;
+    if (!parked) return false;
+    set({ phase: 'authenticating', error: null });
+    try {
+      const password = await completeEnrollment(parked.pending);
+      set({ pendingPasskey: null });
+      return await finishCreate(set, parked.pending.walletName, password, parked.mnemonic);
+    } catch (e) {
+      set({ phase: 'ready', error: e instanceof PasskeyCancelled ? null : userMessage(e) });
+      return false;
+    }
+  },
+
+  cancelPendingPasskey: () => set({ pendingPasskey: null, error: null }),
+
   addPasskey: async (name, password) => {
     try {
-      const stored = await enrollPasskey(name, password);
+      const step = await beginEnrollment(name, password);
+      const stored = step.done ? step.password : await completeEnrollment(step.pending);
       set({ passkeyWallets: await loadPasskeyWallets() });
       return stored;
     } catch (e) {

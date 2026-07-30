@@ -166,8 +166,17 @@ function CreateForm({
   mode: 'create' | 'import';
   onBack: () => void;
 }) {
-  const { wallets, create, createWithPasskey, error, phase, passkeySupported } =
-    useAuthStore();
+  const {
+    wallets,
+    create,
+    createWithPasskey,
+    error,
+    phase,
+    passkeySupported,
+    pendingPasskey,
+    confirmPendingPasskey,
+    cancelPendingPasskey,
+  } = useAuthStore();
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -208,6 +217,51 @@ function CreateForm({
     if (withPasskey) void createWithPasskey(name.trim(), mnemonic);
     else void create(name.trim(), password, mnemonic);
   };
+
+  // Some passkey providers — Google Password Manager on Linux among them —
+  // create the credential but hand over the PRF secret only on a later
+  // assertion, and hang if that assertion is chained automatically. So it gets
+  // its own button: the click supplies the user gesture the provider wants.
+  if (pendingPasskey) {
+    return (
+      <Card>
+        <h2 className="mb-4 text-lg font-semibold">Confirm your passkey</h2>
+        <div className="space-y-4">
+          <Alert kind="info">
+            Your passkey was created. Confirm it once more to finish protecting{' '}
+            <span className="font-medium text-zinc-200">
+              {pendingPasskey.pending.walletName}
+            </span>
+            .
+          </Alert>
+          {error && <Alert kind="error">{error}</Alert>}
+          {busy ? (
+            <Spinner label="Waiting for your passkey…" />
+          ) : (
+            <>
+              <Button className="w-full" onClick={() => void confirmPendingPasskey()}>
+                🔑 Confirm passkey
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  cancelPendingPasskey();
+                  onBack();
+                }}
+              >
+                Cancel
+              </Button>
+              <p className="text-center text-xs text-zinc-600">
+                Cancelling leaves an unused passkey in your password manager, which you can
+                delete there.
+              </p>
+            </>
+          )}
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card>

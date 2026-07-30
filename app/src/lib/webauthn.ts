@@ -37,6 +37,24 @@ function normalize(e: unknown): never {
   throw new PasskeyError(e instanceof Error ? e.message : String(e));
 }
 
+/**
+ * WebAuthn's own `timeout` is a hint the platform may ignore: some providers
+ * (Google Password Manager on Linux, in particular) can leave the promise
+ * pending forever after their dialog closes. A hard ceiling keeps a stuck
+ * ceremony from freezing the UI with no way out.
+ */
+const CEREMONY_TIMEOUT_MS = 90_000;
+
+function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new PasskeyError(`${what} timed out — the passkey prompt never completed.`)),
+      CEREMONY_TIMEOUT_MS,
+    );
+    p.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 export function isPasskeySupported(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -81,17 +99,27 @@ export interface NewCredential {
   credentialId: string;
   userId: string;
   transports: string[];
-  prfSecret: ArrayBuffer;
+  /**
+   * Null when the provider created the credential but withheld the PRF secret.
+   * The caller must then run {@link readPrfSecret} from a *separate, user-
+   * initiated* action rather than chaining it automatically — see below.
+   */
+  prfSecret: ArrayBuffer | null;
 }
 
 /**
- * Register a credential for `walletName` and obtain its PRF secret for `salt`.
+ * Register a credential for `walletName`, asking for its PRF secret for `salt`.
  *
- * Chrome commonly reports `prf.enabled` at creation but withholds `results`
- * until the first assertion, so when the secret is absent we immediately run a
- * `get()` against the credential we just made. Registration fails rather than
- * falling back to something weaker if no secret can be obtained — a stored
- * record we cannot unwrap later would be worse than no passkey at all.
+ * Providers differ on when they hand the secret over: some return it straight
+ * from `create()`, others only from a subsequent assertion. This function does
+ * **not** chain that assertion itself. Google Password Manager on Linux accepts
+ * the PIN, closes its dialog, and then never resolves a `get()` issued from the
+ * same call stack — the promise simply hangs. Returning `prfSecret: null` lets
+ * the caller ask the user to confirm again, which starts a fresh ceremony with
+ * a real user gesture behind it.
+ *
+ * A provider that answers `prf.enabled === false` is rejected outright: storing
+ * a password we could never unwrap would be worse than having no passkey.
  */
 export async function registerPasskey(
   walletName: string,
@@ -100,8 +128,9 @@ export async function registerPasskey(
   const userId = randomBytes(32);
   let cred: PublicKeyCredential | null;
   try {
-    cred = (await navigator.credentials.create({
-      publicKey: {
+    cred = (await withTimeout(
+      navigator.credentials.create({
+        publicKey: {
         challenge: randomBytes(32) as BufferSource,
         rp: { name: 'KMD Wallet', id: window.location.hostname },
         user: {
@@ -120,11 +149,13 @@ export async function registerPasskey(
           requireResidentKey: false,
           userVerification: 'required',
         },
-        timeout: 120_000,
-        attestation: 'none',
-        extensions: prfExtension(salt),
-      },
-    })) as PublicKeyCredential | null;
+          timeout: 120_000,
+          attestation: 'none',
+          extensions: prfExtension(salt),
+        },
+      }),
+      'Creating the passkey',
+    )) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);
   }
@@ -132,16 +163,15 @@ export async function registerPasskey(
 
   const credentialId = toBase64(cred.rawId);
   const ext = cred.getClientExtensionResults() as PrfExtensionResults;
-  let prfSecret = ext.prf?.results?.first;
 
-  if (!prfSecret) {
-    if (ext.prf?.enabled === false) {
-      throw new PasskeyError(
-        'This authenticator does not support the PRF extension, which is required to protect the wallet password.',
-      );
-    }
-    prfSecret = await readPrfSecret(credentialId, salt);
+  if (!ext.prf?.results?.first && ext.prf?.enabled === false) {
+    throw new PasskeyError(
+      'This passkey provider does not support the PRF extension, which is required to protect the wallet password.',
+    );
   }
+  // `undefined` here (no prf key at all) means "unknown, ask again" — not a
+  // refusal. Resolving it is the caller's job, from a fresh user action.
+  const prfSecret = ext.prf?.results?.first ?? null;
 
   const transports =
     typeof (cred.response as AuthenticatorAttestationResponse).getTransports === 'function'
@@ -162,18 +192,21 @@ export async function readPrfSecret(
 ): Promise<ArrayBuffer> {
   let assertion: PublicKeyCredential | null;
   try {
-    assertion = (await navigator.credentials.get({
-      publicKey: {
-        challenge: randomBytes(32) as BufferSource,
-        rpId: window.location.hostname,
-        allowCredentials: [
-          { type: 'public-key', id: fromBase64(credentialId) as BufferSource },
-        ],
-        userVerification: 'required',
-        timeout: 120_000,
-        extensions: prfExtension(salt),
-      },
-    })) as PublicKeyCredential | null;
+    assertion = (await withTimeout(
+      navigator.credentials.get({
+        publicKey: {
+          challenge: randomBytes(32) as BufferSource,
+          rpId: window.location.hostname,
+          allowCredentials: [
+            { type: 'public-key', id: fromBase64(credentialId) as BufferSource },
+          ],
+          userVerification: 'required',
+          timeout: 120_000,
+          extensions: prfExtension(salt),
+        },
+      }),
+      'Confirming the passkey',
+    )) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);
   }
