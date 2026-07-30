@@ -13,7 +13,8 @@ export default function CoinDetail(props: { coin: CoinState; onBack: () => void 
   const { coin } = props;
   const [modal, setModal] = useState<'send' | 'receive' | null>(null);
   const [copied, setCopied] = useState(false);
-  const decimals = coinByTicker(coin.ticker)?.decimals ?? 8;
+  const walletCoin = coinByTicker(coin.ticker);
+  const decimals = walletCoin?.decimals ?? 8;
 
   const copyAddress = () => {
     if (!coin.address) return;
@@ -30,7 +31,19 @@ export default function CoinDetail(props: { coin: CoinState; onBack: () => void 
       <Card className="mb-6">
         <div className="flex flex-col items-center gap-2 py-2 text-center">
           <img src={COIN_ICONS[coin.ticker]} alt={coin.ticker} className="h-14 w-14 rounded-full" />
-          <p className="text-sm text-zinc-500">{COIN_LABELS[coin.ticker] ?? coin.ticker}</p>
+          <div className="flex items-center gap-2 text-sm text-zinc-500">
+            <span>{COIN_LABELS[coin.ticker] ?? coin.ticker}</span>
+            {walletCoin?.faucetUrl && (
+              <a
+                href={walletCoin.faucetUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 transition hover:border-emerald-500/50 hover:text-emerald-400"
+              >
+                Faucet ↗
+              </a>
+            )}
+          </div>
           <p className="text-3xl font-semibold tabular-nums">
             {formatAmount(coin.balance?.spendable)}{' '}
             <span className="text-lg font-normal text-zinc-500">{coin.ticker}</span>

@@ -50,6 +50,8 @@ export interface WalletCoin {
    * transaction history in WASM, so history is read from here instead.
    */
   historyApiBase?: string;
+  /** Testnet/dev faucet, surfaced as a link on the coin detail screen. */
+  faucetUrl?: string;
   explorerTxUrl: (txid: string) => string;
 }
 
@@ -79,6 +81,7 @@ export const KMD: WalletCoin = {
     { url: 'kmd.electrum2.cipig.net:30001', protocol: 'WSS' },
     { url: 'kmd.electrum3.cipig.net:30001', protocol: 'WSS' },
   ],
+  faucetUrl: 'https://faucet.decker.im/',
   explorerTxUrl: (txid) => `https://kmdexplorer.io/tx/${txid}`,
 };
 
@@ -210,10 +213,12 @@ export const GLEEC: WalletCoin = {
   swapContractAddress: '0x51d9EfFc20F6965bc8DFD37E797ac52a72fcdb9D',
   fallbackSwapContract: '0x51d9EfFc20F6965bc8DFD37E797ac52a72fcdb9D',
   historyApiBase: 'https://evm-explorer.gleec.com',
+  faucetUrl: 'https://evm-faucet.gleec.com/',
   explorerTxUrl: (txid) => `https://evm-explorer.gleec.com/tx/${txid}`,
 };
 
-export const WALLET_COINS: WalletCoin[] = [KMD, KMDCL, ARRR, GLEEC];
+/** Display order of the asset list. */
+export const WALLET_COINS: WalletCoin[] = [GLEEC, KMD, KMDCL, ARRR];
 
 export const coinByTicker = (ticker: string): WalletCoin | undefined =>
   WALLET_COINS.find((c) => c.config.coin === ticker);

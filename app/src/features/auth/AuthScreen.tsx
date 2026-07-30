@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrandLogo } from '../../components/BrandLogo';
 import { Alert, BackLink, Button, Card, Spinner, TextField } from '../../components/ui';
+import { APP_VERSION } from '../../config/constants';
 import { validateWalletPassword } from '../../lib/password';
 import { useAuthStore } from '../../store/auth';
 
@@ -18,6 +19,7 @@ export default function AuthScreen() {
           <BrandLogo size={88} glow className="mx-auto mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight">KMD Wallet</h1>
           <p className="mt-1 text-sm text-zinc-400">Decker&apos;s Komodo Wallet, powered by KDF</p>
+          <p className="mt-1 font-mono text-xs text-zinc-600">v{APP_VERSION}</p>
         </div>
         {view.name === 'list' && <WalletList onNavigate={setView} />}
         {view.name === 'login' && (

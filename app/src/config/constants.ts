@@ -3,6 +3,12 @@
 export const APP_NAME = 'KMD Wallet';
 export const KDF_GUI_ID = 'kmd-web-wallet';
 
+/**
+ * App version, `major.minor.build`. Injected by Vite from package.json, which
+ * is the single source of truth — bump it there, never here.
+ */
+export const APP_VERSION = __APP_VERSION__;
+
 /** Komodo DeFi Framework P2P network id (per current seed node deployment). */
 export const KDF_NETID = 6133;
 
