@@ -14,8 +14,10 @@ just static files.
 ## Features
 
 - **Wallet management** — create a new wallet (24-word BIP39 seed with a guided backup
-  step), import an existing seed phrase, unlock by password, log out. Wallets are stored
-  encrypted in IndexedDB by KDF itself.
+  step), import an existing seed phrase, unlock by password or passkey, log out. Wallets
+  are stored encrypted in IndexedDB by KDF itself. The wallet name is suggested as an
+  adjective-noun pair so creation needs no typing, and stays editable — KDF has no
+  rename, so the name chosen at creation is permanent.
 - **Single-address (iguana) mode** — one address per coin (`enable_hd: false`).
 - **Coins** — three protocol families, each with balances, send, receive (QR) and
   transaction history:

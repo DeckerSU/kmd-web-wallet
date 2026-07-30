@@ -4,6 +4,7 @@ import { Alert, BackLink, Button, Card, Spinner, TextField } from '../../compone
 import { APP_VERSION } from '../../config/constants';
 import { formatPasskeyLog } from '../../lib/passkeyLog';
 import { validateWalletPassword } from '../../lib/password';
+import { generateWalletName } from '../../lib/walletName';
 import { useAuthStore } from '../../store/auth';
 
 type View =
@@ -202,7 +203,9 @@ function CreateForm({
     cancelPendingPasskey,
     passkeyRoamingOffered,
   } = useAuthStore();
-  const [name, setName] = useState('');
+  // Suggested up front so creating a wallet needs no typing; the field stays
+  // editable because the name is permanent — KDF has no rename.
+  const [name, setName] = useState(() => generateWalletName(wallets));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [seed, setSeed] = useState('');
@@ -299,8 +302,22 @@ function CreateForm({
           label="Wallet name"
           value={name}
           onChange={setName}
-          autoFocus
           error={nameError}
+          hint="Suggested for you — clear it and type your own if you prefer."
+          trailing={
+            <button
+              type="button"
+              title="Suggest another name"
+              aria-label="Suggest another name"
+              onClick={() => {
+                setName(generateWalletName(wallets));
+                setTouched(false);
+              }}
+              className="rounded-lg px-2 py-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-emerald-400"
+            >
+              ↻
+            </button>
+          }
         />
         {passkeySupported && (
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
@@ -328,6 +345,7 @@ function CreateForm({
               value={password}
               onChange={setPassword}
               error={passwordError}
+              autoFocus={mode === 'create'}
               hint="Min 8 chars, with digit, upper/lowercase and special character"
             />
             <TextField
@@ -345,6 +363,7 @@ function CreateForm({
             <textarea
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
+              autoFocus
               rows={3}
               className={`w-full rounded-xl border bg-zinc-900 px-4 py-2.5 font-mono text-sm text-zinc-100 outline-none transition focus:border-emerald-500 ${seedError ? 'border-red-500/70' : 'border-zinc-700'}`}
               placeholder="word1 word2 word3 …"
