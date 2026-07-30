@@ -40,19 +40,27 @@ export function TextField(props: {
   placeholder?: string;
   autoFocus?: boolean;
   error?: string | null;
-  hint?: string;
+  /** Accepts markup, so a hint can emphasise the part that matters. */
+  hint?: ReactNode;
+  /** Control rendered inside the field, on the right. Reserves its own space. */
+  trailing?: ReactNode;
 }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-medium text-zinc-300">{props.label}</span>
-      <input
-        type={props.type ?? 'text'}
-        value={props.value}
-        autoFocus={props.autoFocus}
-        placeholder={props.placeholder}
-        onChange={(e) => props.onChange(e.target.value)}
-        className={`w-full rounded-xl border bg-zinc-900 px-4 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-emerald-500 ${props.error ? 'border-red-500/70' : 'border-zinc-700'}`}
-      />
+      <span className="relative block">
+        <input
+          type={props.type ?? 'text'}
+          value={props.value}
+          autoFocus={props.autoFocus}
+          placeholder={props.placeholder}
+          onChange={(e) => props.onChange(e.target.value)}
+          className={`w-full rounded-xl border bg-zinc-900 py-2.5 pl-4 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-emerald-500 ${props.trailing ? 'pr-12' : 'pr-4'} ${props.error ? 'border-red-500/70' : 'border-zinc-700'}`}
+        />
+        {props.trailing && (
+          <span className="absolute inset-y-0 right-1.5 flex items-center">{props.trailing}</span>
+        )}
+      </span>
       {props.error ? (
         <span className="mt-1 block text-xs text-red-400">{props.error}</span>
       ) : props.hint ? (

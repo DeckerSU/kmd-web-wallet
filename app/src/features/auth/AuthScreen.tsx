@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { BrandLogo } from '../../components/BrandLogo';
+import { WalletIcon } from '../../components/WalletIcon';
 import { Alert, BackLink, Button, Card, Spinner, TextField } from '../../components/ui';
 import { APP_VERSION } from '../../config/constants';
 import { formatPasskeyLog } from '../../lib/passkeyLog';
 import { validateWalletPassword } from '../../lib/password';
+import { generateWalletName } from '../../lib/walletName';
 import { useAuthStore } from '../../store/auth';
 
 type View =
@@ -35,7 +37,7 @@ export default function AuthScreen() {
 }
 
 function WalletList({ onNavigate }: { onNavigate: (v: View) => void }) {
-  const { wallets, error, clearError, passkeyWallets, loginWithPasskey, phase } =
+  const { wallets, error, clearError, passkeyWallets, walletKeys, loginWithPasskey, phase } =
     useAuthStore();
   const busy = phase === 'authenticating';
 
@@ -65,9 +67,7 @@ function WalletList({ onNavigate }: { onNavigate: (v: View) => void }) {
                     }}
                     className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left transition hover:border-emerald-500/50 hover:bg-zinc-800/80 disabled:opacity-50"
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-emerald-400">
-                      {w.charAt(0).toUpperCase()}
-                    </span>
+                    <WalletIcon name={w} publicKey={walletKeys[w]} size={36} />
                     <span className="flex-1 truncate text-sm font-medium">{w}</span>
                     {hasPasskey && (
                       <span
@@ -202,7 +202,9 @@ function CreateForm({
     cancelPendingPasskey,
     passkeyRoamingOffered,
   } = useAuthStore();
-  const [name, setName] = useState('');
+  // Suggested up front so creating a wallet needs no typing; the field stays
+  // editable because the name is permanent — KDF has no rename.
+  const [name, setName] = useState(() => generateWalletName(wallets));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [seed, setSeed] = useState('');
@@ -299,8 +301,28 @@ function CreateForm({
           label="Wallet name"
           value={name}
           onChange={setName}
-          autoFocus
           error={nameError}
+          hint={
+            <>
+              Suggested for you - clear it and type your own if you prefer. The name{' '}
+              <strong className="font-semibold text-zinc-300">cannot be</strong> changed
+              later.
+            </>
+          }
+          trailing={
+            <button
+              type="button"
+              title="Suggest another name"
+              aria-label="Suggest another name"
+              onClick={() => {
+                setName(generateWalletName(wallets));
+                setTouched(false);
+              }}
+              className="rounded-lg px-2 py-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-emerald-400"
+            >
+              ↻
+            </button>
+          }
         />
         {passkeySupported && (
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
@@ -328,6 +350,7 @@ function CreateForm({
               value={password}
               onChange={setPassword}
               error={passwordError}
+              autoFocus={mode === 'create'}
               hint="Min 8 chars, with digit, upper/lowercase and special character"
             />
             <TextField
@@ -345,6 +368,7 @@ function CreateForm({
             <textarea
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
+              autoFocus
               rows={3}
               className={`w-full rounded-xl border bg-zinc-900 px-4 py-2.5 font-mono text-sm text-zinc-100 outline-none transition focus:border-emerald-500 ${seedError ? 'border-red-500/70' : 'border-zinc-700'}`}
               placeholder="word1 word2 word3 …"

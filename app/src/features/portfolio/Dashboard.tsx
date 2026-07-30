@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrandLogo } from '../../components/BrandLogo';
+import { WalletIcon } from '../../components/WalletIcon';
 import { Alert, Button, Card, Spinner } from '../../components/ui';
 import { coinByTicker } from '../../config/coins';
 import { formatAmount, shortenAddress } from '../../lib/format';
@@ -12,7 +12,8 @@ import CoinDetail from './CoinDetail';
 import { COIN_ICONS, COIN_LABELS } from './coinVisuals';
 
 export default function Dashboard() {
-  const { walletName, logout, justCreated, dismissBackupReminder } = useAuthStore();
+  const { walletName, walletKeys, logout, justCreated, dismissBackupReminder } =
+    useAuthStore();
   const { coins, activateAll, reset } = usePortfolioStore();
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -33,7 +34,7 @@ export default function Dashboard() {
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <header className="mb-8 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <BrandLogo size={40} />
+          <WalletIcon name={walletName ?? ''} publicKey={walletKeys[walletName ?? '']} size={40} />
           <div>
             <h1 className="text-lg font-semibold leading-tight tracking-tight">{walletName}</h1>
             <p className="text-xs text-zinc-500">Iguana wallet</p>

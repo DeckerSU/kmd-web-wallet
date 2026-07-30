@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { BootStage } from '../kdf/bootStage';
 import { logPasskeyCapabilities } from '../lib/passkeyLog';
+import { loadWalletKeys, pruneWalletKeys, saveWalletKey } from '../lib/walletMeta';
 import { listPasskeys, pruneOrphans } from '../lib/passkeyStore';
 import { isPasskeySupported, isPrfLikelyAvailable } from '../lib/webauthn';
 import {
@@ -11,6 +12,7 @@ import {
   unlockPassword,
   type PendingEnrollment,
 } from '../services/passkey';
+import { getPublicKey } from '../kdf/methods';
 import {
   createWallet,
   loginWallet,
@@ -47,6 +49,8 @@ interface AuthState {
   passkeySupported: boolean;
   /** Wallet names that have a passkey registered in this browser. */
   passkeyWallets: string[];
+  /** Public key per wallet, seeding its identicon. Learned on first login. */
+  walletKeys: Record<string, string>;
   /**
    * Set once after creating a wallet with a passkey: the generated password the
    * user must record, since a passkey means they never chose one. Cleared as
@@ -132,7 +136,33 @@ async function finishCreate(
     generatedPassword: password,
     passkeyWallets: await loadPasskeyWallets(),
   });
+  try {
+    const publicKey = await getPublicKey();
+    await saveWalletKey(name, publicKey);
+    set({ walletKeys: { ...useAuthStore.getState().walletKeys, [name]: publicKey } });
+  } catch {
+    /* an identicon is a nicety, never a reason to fail wallet creation */
+  }
   return true;
+}
+
+/**
+ * Record the wallet's public key once a session is open, so the login screen can
+ * draw its identicon next time without one. Best-effort: a wallet that opened
+ * fine must not be reported as failed because a picture could not be saved.
+ */
+async function captureWalletKey(
+  set: SetAuthState,
+  get: () => AuthState,
+  name: string,
+): Promise<void> {
+  try {
+    const publicKey = await getPublicKey();
+    await saveWalletKey(name, publicKey);
+    set({ walletKeys: { ...get().walletKeys, [name]: publicKey } });
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Names of wallets with a passkey record, for the login list's key badges. */
@@ -156,6 +186,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   passkeyRoamingOffered: false,
   passkeySupported: false,
   passkeyWallets: [],
+  walletKeys: {},
   generatedPassword: null,
 
   boot: () => {
@@ -169,6 +200,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // A passkey record for a wallet KDF no longer knows would unwrap a
         // password that opens nothing, so reconcile against the real list.
         await pruneOrphans(wallets);
+        await pruneWalletKeys(wallets);
         // Snapshot what this browser claims to support, so any later passkey
         // failure report opens with the environment it happened in.
         await logPasskeyCapabilities();
@@ -179,6 +211,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           bootStage: null,
           passkeySupported: isPasskeySupported() && (await isPrfLikelyAvailable()),
           passkeyWallets: await loadPasskeyWallets(),
+          walletKeys: await loadWalletKeys(),
         });
       } catch (e) {
         set({ phase: 'boot-error', error: userMessage(e), bootProgress: null, bootStage: null });
@@ -196,6 +229,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await loginWallet(name, password);
       set({ phase: 'authenticated', walletName: name, justCreated: false });
+      void captureWalletKey(set, get, name);
       return true;
     } catch (e) {
       set({ phase: 'ready', error: userMessage(e) });
@@ -209,6 +243,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const password = await unlockPassword(name);
       await loginWallet(name, password);
       set({ phase: 'authenticated', walletName: name, justCreated: false });
+      void captureWalletKey(set, get, name);
       return true;
     } catch (e) {
       // Dismissing the OS prompt is a choice, not a failure — say nothing.
@@ -224,6 +259,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Only nudge for backup when KDF generated a fresh seed (new wallet),
       // not when the user imported a seed they already hold.
       set({ phase: 'authenticated', walletName: name, justCreated: !mnemonic });
+      void captureWalletKey(set, get, name);
       return true;
     } catch (e) {
       set({ phase: 'ready', error: userMessage(e) });
