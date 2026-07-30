@@ -492,6 +492,15 @@ export async function getMnemonic(walletPassword: string): Promise<string> {
   return res.mnemonic;
 }
 
+/**
+ * The wallet's internal secp256k1 public key — one per wallet, independent of
+ * any coin, available as soon as a session is open. Used as the identicon seed.
+ */
+export async function getPublicKey(): Promise<string> {
+  const res = await kdf.rpc2<{ public_key: string }>('get_public_key');
+  return res.public_key;
+}
+
 export async function kdfVersion(): Promise<string> {
   const res = await kdf.rpc<{ result: string }>({ method: 'version' });
   return res.result;

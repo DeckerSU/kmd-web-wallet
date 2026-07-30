@@ -20,6 +20,12 @@ just static files.
   words carry recognisability, the five-digit suffix carries uniqueness — and stays
   editable, since KDF has no rename and the name chosen at creation is permanent.
 - **Single-address (iguana) mode** — one address per coin (`enable_hd: false`).
+- **Wallet identicons** — each wallet is drawn as a deterministic pattern derived from
+  its own public key (`get_public_key`), shown in the wallet list and the dashboard
+  header. A name can be mistyped or shared between two wallets that start with the same
+  letter; keys cannot. Only the key is stored (`kmd-wallet-meta` in IndexedDB) and the
+  image recomputed, so it can never go stale. A wallet never yet opened in this browser
+  falls back to a letter, since KDF only reveals the key to an open session.
 - **Coins** — three protocol families, each with balances, send, receive (QR) and
   transaction history:
   | Coin | Protocol | Activation | Transaction history |
