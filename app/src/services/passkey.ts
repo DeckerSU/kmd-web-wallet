@@ -2,7 +2,9 @@ import { fromBase64, randomBytes, toBase64, unwrapSecret, wrapSecret } from '../
 import {
   deletePasskey,
   getPasskey,
+  loadPreferredAttachment,
   savePasskey,
+  savePreferredAttachment,
   touchPasskey,
   type PasskeyRecord,
 } from '../lib/passkeyStore';
@@ -32,6 +34,7 @@ export interface PendingEnrollment {
   credentialId: string;
   userId: string;
   transports: string[];
+  attachment?: AuthenticatorAttachment;
 }
 
 export type EnrollmentStep =
@@ -53,10 +56,15 @@ export type EnrollmentStep =
 export async function beginEnrollment(
   walletName: string,
   password?: string,
+  attachment?: AuthenticatorAttachment,
 ): Promise<EnrollmentStep> {
   const walletPassword = password ?? generateWalletPassword();
   const salt = randomBytes(32);
-  const cred = await registerPasskey(walletName, salt);
+  // An explicit choice wins; otherwise reuse whatever worked here before, and
+  // fall back to letting the browser decide on a first run.
+  const useAttachment = attachment ?? loadPreferredAttachment() ?? undefined;
+  const cred = await registerPasskey(walletName, salt, { attachment: useAttachment });
+  if (useAttachment) savePreferredAttachment(useAttachment);
 
   const pending: PendingEnrollment = {
     walletName,
@@ -65,6 +73,7 @@ export async function beginEnrollment(
     credentialId: cred.credentialId,
     userId: cred.userId,
     transports: cred.transports,
+    attachment: useAttachment,
   };
 
   if (!cred.prfSecret) return { done: false, pending };

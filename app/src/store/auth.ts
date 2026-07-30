@@ -56,6 +56,11 @@ interface AuthState {
    * the second ceremony must be triggered by that click, never automatically.
    */
   pendingPasskey: { pending: PendingEnrollment; mnemonic?: string } | null;
+  /**
+   * True after a platform-authenticator enrolment failed, so the UI can offer a
+   * phone or security key instead of just reporting the error.
+   */
+  passkeyRoamingOffered: boolean;
 
   boot: () => Promise<void>;
   login: (name: string, password: string) => Promise<boolean>;
@@ -70,7 +75,11 @@ interface AuthState {
    * Register a wallet protected by a passkey. The password is generated, never
    * typed, and surfaced through `generatedPassword` for the backup step.
    */
-  createWithPasskey: (name: string, mnemonic?: string) => Promise<boolean>;
+  createWithPasskey: (
+    name: string,
+    mnemonic?: string,
+    attachment?: AuthenticatorAttachment,
+  ) => Promise<boolean>;
   /** Finish an enrolment that needed a second, user-initiated confirmation. */
   confirmPendingPasskey: () => Promise<boolean>;
   cancelPendingPasskey: () => void;
@@ -140,6 +149,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   bootProgress: null,
   justCreated: false,
   pendingPasskey: null,
+  passkeyRoamingOffered: false,
   passkeySupported: false,
   passkeyWallets: [],
   generatedPassword: null,
@@ -215,12 +225,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  createWithPasskey: async (name, mnemonic) => {
-    set({ phase: 'authenticating', error: null, pendingPasskey: null });
+  createWithPasskey: async (name, mnemonic, attachment) => {
+    set({
+      phase: 'authenticating',
+      error: null,
+      pendingPasskey: null,
+      passkeyRoamingOffered: false,
+    });
     try {
       // Enrol first: if the passkey ceremony fails we must not be left with a
       // wallet whose generated password nobody has ever seen.
-      const step = await beginEnrollment(name);
+      const step = await beginEnrollment(name, undefined, attachment);
       if (!step.done) {
         // Provider withheld the PRF secret; park it until the user confirms.
         set({ phase: 'ready', pendingPasskey: { pending: step.pending, mnemonic } });
@@ -228,7 +243,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       return await finishCreate(set, name, step.password, mnemonic);
     } catch (e) {
-      set({ phase: 'ready', error: e instanceof PasskeyCancelled ? null : userMessage(e) });
+      // A platform provider that stalls is a known failure on some systems
+      // (Google Password Manager on Linux). Offer the route that does work
+      // rather than leaving the user with a dead end.
+      set({
+        phase: 'ready',
+        error: e instanceof PasskeyCancelled ? null : userMessage(e),
+        passkeyRoamingOffered: attachment !== 'cross-platform' && !(e instanceof PasskeyCancelled),
+      });
       return false;
     }
   },

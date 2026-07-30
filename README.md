@@ -103,6 +103,22 @@ does not travel, so a synced passkey would unlock nothing elsewhere. A useful
 side effect is that the authenticator stores nothing, so wallet names never
 appear in the OS passkey manager.
 
+**Google Password Manager on Linux does not work for this.** Measured with the
+bisect panel in the dev console (`?debug`), on Chrome 150 / X11:
+
+| Request | Result |
+|---|---|
+| no PRF, `userVerification: 'discouraged'` | created in 2.2s |
+| no PRF, `'preferred'` or `'required'` | hangs |
+| PRF, any `userVerification` | hangs |
+| PRF, `'required'`, `authenticatorAttachment: 'cross-platform'` | created in 22.7s, PRF secret returned |
+
+So the platform provider stalls on anything beyond the most minimal request,
+while a phone over hybrid or a security key handles the exact same options
+perfectly. The request is fine; that provider is not. When enrolment fails the
+UI therefore offers a phone or security key, and once that route works it is
+remembered for the browser, so nobody is walked into the same stall twice.
+
 **Two-phase enrolment.** Providers disagree on when they release the PRF secret:
 some return it from `create()`, others only from a later assertion. That second
 ceremony is never chained automatically — Google Password Manager on Linux

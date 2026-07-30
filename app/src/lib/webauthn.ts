@@ -39,12 +39,17 @@ function normalize(e: unknown): never {
 }
 
 /**
- * WebAuthn's own `timeout` is a hint the platform may ignore: some providers
- * (Google Password Manager on Linux, in particular) can leave the promise
- * pending long after the user has answered. A hard ceiling keeps a stuck
- * ceremony from freezing the UI with no way out.
+ * WebAuthn's own `timeout` is a hint the platform may ignore, and at least one
+ * provider ignores it completely: Google Password Manager on Linux leaves the
+ * promise pending indefinitely for any request that asks for user verification
+ * or the PRF extension — measured, not guessed. A hard ceiling turns that into
+ * a recoverable error instead of a frozen screen.
+ *
+ * Roaming authenticators get longer: pairing a phone over hybrid means scanning
+ * a QR code, which legitimately takes a while.
  */
-const CEREMONY_TIMEOUT_MS = 90_000;
+const CEREMONY_TIMEOUT_MS = 60_000;
+const ROAMING_TIMEOUT_MS = 150_000;
 
 /**
  * Run one ceremony with tracing and a real cancellation path.
@@ -210,7 +215,8 @@ export async function registerPasskey(
       { publicKey },
       (o) => navigator.credentials.create(o),
       { rpId: publicKey.rp.id, residentKey, userVerification, withPrf, attachment },
-      opts.timeoutMs,
+      opts.timeoutMs ??
+        (attachment === 'cross-platform' ? ROAMING_TIMEOUT_MS : CEREMONY_TIMEOUT_MS),
     )) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);

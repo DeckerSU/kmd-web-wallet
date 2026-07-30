@@ -31,6 +31,34 @@ export interface PasskeyRecord {
   version: 1;
 }
 
+/**
+ * Which authenticator worked last time, remembered per browser.
+ *
+ * Google Password Manager on Linux hangs on any request that asks for user
+ * verification or PRF, so on such a browser the platform provider is a dead end
+ * and a phone or security key is the only route. Once the user has been down
+ * that road successfully there is no reason to walk them into the hang again.
+ */
+const ATTACHMENT_KEY = 'kdf.passkeyAttachment';
+
+export function loadPreferredAttachment(): AuthenticatorAttachment | null {
+  try {
+    const v = localStorage.getItem(ATTACHMENT_KEY);
+    return v === 'cross-platform' || v === 'platform' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePreferredAttachment(a: AuthenticatorAttachment | null): void {
+  try {
+    if (a) localStorage.setItem(ATTACHMENT_KEY, a);
+    else localStorage.removeItem(ATTACHMENT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);

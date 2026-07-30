@@ -200,6 +200,7 @@ function CreateForm({
     pendingPasskey,
     confirmPendingPasskey,
     cancelPendingPasskey,
+    passkeyRoamingOffered,
   } = useAuthStore();
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -357,9 +358,31 @@ function CreateForm({
             ready, back it up from Settings → Show seed phrase.
           </Alert>
         )}
-        {error && (
+        {(error || passkeyRoamingOffered) && (
           <div className="space-y-2">
-            <Alert kind="error">{error}</Alert>
+            {error && <Alert kind="error">{error}</Alert>}
+            {passkeyRoamingOffered && (
+              <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+                <p className="text-xs text-amber-200/90">
+                  Your device&apos;s built-in passkey manager didn&apos;t respond. On some
+                  systems it can&apos;t handle the kind of passkey this wallet needs. A phone
+                  or a security key works instead.
+                </p>
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() =>
+                    void createWithPasskey(
+                      name.trim(),
+                      mode === 'import' ? seed.trim() : undefined,
+                      'cross-platform',
+                    )
+                  }
+                >
+                  Use a phone or security key
+                </Button>
+              </div>
+            )}
             {withPasskey && <PasskeyReportLink />}
           </div>
         )}
