@@ -241,6 +241,36 @@ from scratch. Password login therefore always remains available, and enrolment
 verifies the wrap round-trips before persisting, so a record that cannot be
 opened later is never written.
 
+### Boot diagnostics
+
+Startup is several steps, and they used to be indistinguishable: the screen read
+"Downloading wallet engine…" until the whole sequence finished, so a slow wasm
+compile or a node that would not come up both looked like a stuck download that
+had visibly reached 100%.
+
+The console now prints a phase breakdown, KDF's own log lines timestamped
+relative to node start, and how the wasm was actually obtained:
+
+```
+[boot] downloading took 73 ms → compiling
+[boot] wasm over network: transfer=34.2MB encoded=34.1MB decoded=34.1MB in 56ms
+[boot] compiling took 44 ms → starting-node
+[boot:kdf +38ms] … INFO Dialed /dns/seed01.kmdefi.net/tcp/32336/wss
+[boot] starting-node took 62 ms → waiting-rpc
+[boot] RPC up after 1 ms
+[boot] ready in 207 ms — downloading=73ms compiling=44ms starting-node=62ms …
+```
+
+The `[boot:kdf …]` lines matter most: between "node started" and "RPC up" the
+node brings up its P2P seed connections, which is the likeliest place for a
+machine-specific stall and is otherwise a black box.
+
+**The progress percentage was also wrong.** `Content-Length` counts bytes on the
+wire while the reader yields decoded bytes, so for the gzipped wasm the display
+read `34.1 / 11.2 MB (100%)` — a ratio of ~300%, clamped. The total is now
+dropped when the response is encoded, or as soon as decoded bytes overtake it,
+and progress shows bytes without a percentage rather than a confident wrong one.
+
 ### Versioning
 
 The app version is `major.minor.build`, and **`app/package.json` is the single source

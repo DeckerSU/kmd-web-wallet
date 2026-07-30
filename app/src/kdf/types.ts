@@ -23,6 +23,12 @@ export const StartupResultCode = {
 export type StartupResultCode =
   (typeof StartupResultCode)[keyof typeof StartupResultCode];
 
+/** Human-readable `mm2_main_status`, for boot diagnostics. */
+export function mainStatusName(status: number): string {
+  const entry = Object.entries(MainStatus).find(([, v]) => v === status);
+  return entry ? entry[0] : `Unknown(${status})`;
+}
+
 export function startupResultName(code: number): string {
   const entry = Object.entries(StartupResultCode).find(([, v]) => v === code);
   return entry ? entry[0] : `Unknown(${code})`;

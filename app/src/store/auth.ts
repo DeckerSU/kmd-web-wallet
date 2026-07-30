@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { BootStage } from '../kdf/bootStage';
 import { logPasskeyCapabilities } from '../lib/passkeyLog';
 import { listPasskeys, pruneOrphans } from '../lib/passkeyStore';
 import { isPasskeySupported, isPrfLikelyAvailable } from '../lib/webauthn';
@@ -33,6 +34,8 @@ interface AuthState {
   error: string | null;
   /** WASM download progress during boot (null once loaded/unknown). */
   bootProgress: { loaded: number; total: number | null } | null;
+  /** Which step of boot is running, so a stall is attributable to one of them. */
+  bootStage: BootStage | null;
 
   /**
    * True right after a brand-new wallet is created (not imported/logged in),
@@ -147,6 +150,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   walletName: null,
   error: null,
   bootProgress: null,
+  bootStage: null,
   justCreated: false,
   pendingPasskey: null,
   passkeyRoamingOffered: false,
@@ -158,8 +162,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     bootInFlight ??= (async () => {
       set({ phase: 'boot', error: null });
       try {
-        const wallets = await startNoAuthSession((loaded, total) =>
-          set({ bootProgress: { loaded, total } }),
+        const wallets = await startNoAuthSession(
+          (loaded, total) => set({ bootProgress: { loaded, total }, bootStage: { phase: 'downloading', loaded, total } }),
+          (stage) => set({ bootStage: stage }),
         );
         // A passkey record for a wallet KDF no longer knows would unwrap a
         // password that opens nothing, so reconcile against the real list.
@@ -171,11 +176,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           phase: 'ready',
           wallets,
           bootProgress: null,
+          bootStage: null,
           passkeySupported: isPasskeySupported() && (await isPrfLikelyAvailable()),
           passkeyWallets: await loadPasskeyWallets(),
         });
       } catch (e) {
-        set({ phase: 'boot-error', error: userMessage(e), bootProgress: null });
+        set({ phase: 'boot-error', error: userMessage(e), bootProgress: null, bootStage: null });
       } finally {
         bootInFlight = null;
       }

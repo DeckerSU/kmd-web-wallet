@@ -1,7 +1,9 @@
+import { markBootPhase, type OnBootStage } from './bootStage';
 import {
   KdfRpcError,
   LogLevel,
   MainStatus,
+  mainStatusName,
   mm2RpcErrName,
   StartupResultCode,
   type KdfLibModule,
@@ -19,12 +21,22 @@ export interface StartOutcome {
 
 export type LoadProgress = (loadedBytes: number, totalBytes: number | null) => void;
 
-/** Fetch a URL as bytes, reporting download progress per chunk. */
+/**
+ * Fetch a URL as bytes, reporting download progress per chunk.
+ *
+ * `Content-Length` describes the bytes on the wire, but the reader yields
+ * *decoded* bytes, so for the gzipped wasm the two are not comparable — the old
+ * display read "34.1 / 11.2 MB (100%)", the ratio being ~300% and clamped. When
+ * the response is encoded, or once the decoded size overtakes the header, the
+ * total is dropped and progress is reported as bytes with no percentage rather
+ * than as a confident wrong number.
+ */
 async function fetchWithProgress(url: string, onProgress: LoadProgress): Promise<Uint8Array> {
   const res = await fetch(url);
   if (!res.ok || !res.body) throw new Error(`Failed to fetch ${url}: ${res.status}`);
   const lengthHeader = res.headers.get('Content-Length');
-  const total = lengthHeader ? Number(lengthHeader) : null;
+  const encoded = !!res.headers.get('Content-Encoding');
+  let total = lengthHeader && !encoded ? Number(lengthHeader) : null;
 
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -34,6 +46,9 @@ async function fetchWithProgress(url: string, onProgress: LoadProgress): Promise
     if (done) break;
     chunks.push(value);
     loaded += value.byteLength;
+    // Self-correcting: a header that the decoded stream has already passed was
+    // describing compressed bytes, whatever Content-Encoding claimed.
+    if (total != null && loaded > total) total = null;
     onProgress(loaded, total);
   }
   const bytes = new Uint8Array(loaded);
@@ -68,7 +83,7 @@ class KdfClient {
    * With `onProgress`, the ~36 MB wasm is fetched manually so download
    * progress can be shown; otherwise wasm-bindgen fetches it itself.
    */
-  async load(onProgress?: LoadProgress): Promise<KdfLibModule> {
+  async load(onProgress?: LoadProgress, onStage?: OnBootStage): Promise<KdfLibModule> {
     if (this.module) return this.module;
     this.loadPromise ??= (async () => {
       // Lazy import keeps the ~36 MB wasm out of the initial page load.
@@ -77,9 +92,16 @@ class KdfClient {
         import('../kdflib/kdflib_bg.wasm?url').then((m) => m.default),
       ]);
       if (onProgress) {
+        markBootPhase('downloading');
         const bytes = await fetchWithProgress(wasmUrl, onProgress);
+        // Compiling ~36 MB of wasm is not instant, and it used to happen while
+        // the screen still read "Downloading… 100%".
+        markBootPhase('compiling');
+        onStage?.({ phase: 'compiling' });
         await mod.default({ module_or_path: bytes });
       } else {
+        markBootPhase('compiling');
+        onStage?.({ phase: 'compiling' });
         await mod.default();
       }
       this.module = mod;
@@ -108,8 +130,12 @@ class KdfClient {
    * (e.g. InitError + "Error generating or decrypting mnemonic" for a wrong
    * wallet password) — normalized here into the returned outcome.
    */
-  start(conf: KdfStartupConf, logLevel: LogLevel = LogLevel.Info): Promise<StartOutcome> {
-    return this.serialize(() => this.startInner(conf, logLevel));
+  start(
+    conf: KdfStartupConf,
+    logLevel: LogLevel = LogLevel.Info,
+    onStage?: OnBootStage,
+  ): Promise<StartOutcome> {
+    return this.serialize(() => this.startInner(conf, logLevel, onStage));
   }
 
   private serialize<T>(fn: () => Promise<T>): Promise<T> {
@@ -121,6 +147,7 @@ class KdfClient {
   private async startInner(
     conf: KdfStartupConf,
     logLevel: LogLevel,
+    onStage?: OnBootStage,
   ): Promise<StartOutcome> {
     const mod = await this.load();
 
@@ -144,20 +171,39 @@ class KdfClient {
     if (code === StartupResultCode.Ok || code === StartupResultCode.AlreadyRunning) {
       // Only the conf that actually started the node owns the RPC password.
       if (code === StartupResultCode.Ok) this.rpcPassword = conf.rpc_password;
-      await this.waitForRpc();
+      markBootPhase('waiting-rpc');
+      await this.waitForRpc(30_000, onStage);
     }
     return { code };
   }
 
-  /** Poll mm2_main_status until the RPC server is ready. */
-  async waitForRpc(timeoutMs = 30_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
+  /**
+   * Poll mm2_main_status until the RPC server is ready.
+   *
+   * This is where a stall is most likely to hide: the node initialises its P2P
+   * layer before serving RPC, so unreachable seed nodes show up here as a wait
+   * with nothing else to look at. The status is reported as it changes.
+   */
+  async waitForRpc(timeoutMs = 30_000, onStage?: OnBootStage): Promise<void> {
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    let lastStatus = this.status();
+    console.info(`[boot] waiting for RPC, status=${mainStatusName(lastStatus)}`);
     while (this.status() !== MainStatus.RpcIsUp) {
       if (Date.now() > deadline) {
         throw new Error(`KDF RPC not up within ${timeoutMs} ms (status=${this.status()})`);
       }
+      const current = this.status();
+      if (current !== lastStatus) {
+        console.info(
+          `[boot] status ${mainStatusName(lastStatus)} → ${mainStatusName(current)} after ${Date.now() - started} ms`,
+        );
+        lastStatus = current;
+      }
+      onStage?.({ phase: 'waiting-rpc', elapsedMs: Date.now() - started });
       await sleep(200);
     }
+    console.info(`[boot] RPC up after ${Date.now() - started} ms`);
   }
 
   /**
