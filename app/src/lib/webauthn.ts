@@ -1,4 +1,5 @@
 import { fromBase64, randomBytes, toBase64 } from './keywrap';
+import { logPasskey } from './passkeyLog';
 
 /**
  * WebAuthn wrapper, scoped to what this wallet needs: create a credential bound
@@ -40,19 +41,52 @@ function normalize(e: unknown): never {
 /**
  * WebAuthn's own `timeout` is a hint the platform may ignore: some providers
  * (Google Password Manager on Linux, in particular) can leave the promise
- * pending forever after their dialog closes. A hard ceiling keeps a stuck
+ * pending long after the user has answered. A hard ceiling keeps a stuck
  * ceremony from freezing the UI with no way out.
  */
 const CEREMONY_TIMEOUT_MS = 90_000;
 
-function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new PasskeyError(`${what} timed out — the passkey prompt never completed.`)),
-      CEREMONY_TIMEOUT_MS,
-    );
-    p.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
+/**
+ * Run one ceremony with tracing and a real cancellation path.
+ *
+ * The abort matters as much as the timeout: rejecting our own promise would
+ * leave the provider's dialog on screen still spinning, because the ceremony
+ * itself keeps running. Aborting the request tears that dialog down too.
+ */
+async function runCeremony<T>(
+  what: string,
+  options: CredentialRequestOptions | CredentialCreationOptions,
+  invoke: (opts: never) => Promise<T>,
+  describe: Record<string, unknown>,
+): Promise<T> {
+  const controller = new AbortController();
+  logPasskey(`${what}: start`, describe);
+  const t0 = performance.now();
+
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    logPasskey(`${what}: timeout, aborting`, { afterMs: Math.round(performance.now() - t0) });
+    controller.abort();
+  }, CEREMONY_TIMEOUT_MS);
+
+  try {
+    const result = await invoke({ ...options, signal: controller.signal } as never);
+    logPasskey(`${what}: resolved`, { afterMs: Math.round(performance.now() - t0) });
+    return result;
+  } catch (e) {
+    const took = Math.round(performance.now() - t0);
+    const name = e instanceof DOMException ? e.name : (e as Error)?.name;
+    logPasskey(`${what}: rejected`, { afterMs: took, name, message: String(e) });
+    if (timedOut) {
+      throw new PasskeyError(
+        `${what} timed out after ${Math.round(CEREMONY_TIMEOUT_MS / 1000)}s — the passkey prompt never completed.`,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function isPasskeySupported(): boolean {
@@ -121,41 +155,55 @@ export interface NewCredential {
  * A provider that answers `prf.enabled === false` is rejected outright: storing
  * a password we could never unwrap would be worse than having no passkey.
  */
+export interface RegisterOptions {
+  residentKey?: ResidentKeyRequirement;
+  userVerification?: UserVerificationRequirement;
+  /** Off only for diagnostics — a credential without PRF is useless to us. */
+  withPrf?: boolean;
+}
+
 export async function registerPasskey(
   walletName: string,
   salt: Uint8Array,
+  opts: RegisterOptions = {},
 ): Promise<NewCredential> {
+  const residentKey = opts.residentKey ?? 'discouraged';
+  const userVerification = opts.userVerification ?? 'required';
+  const withPrf = opts.withPrf ?? true;
+
   const userId = randomBytes(32);
+  const publicKey: PublicKeyCredentialCreationOptions = {
+    challenge: randomBytes(32) as BufferSource,
+    rp: { name: 'KMD Wallet', id: window.location.hostname },
+    user: {
+      id: userId as BufferSource,
+      // Not persisted by the authenticator for non-discoverable credentials,
+      // so the wallet name does not leak into the OS passkey manager.
+      name: walletName,
+      displayName: walletName,
+    },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 }, // ES256
+      { type: 'public-key', alg: -257 }, // RS256
+    ],
+    authenticatorSelection: {
+      residentKey,
+      requireResidentKey: residentKey === 'required',
+      userVerification,
+    },
+    timeout: 120_000,
+    attestation: 'none',
+    ...(withPrf ? { extensions: prfExtension(salt) } : {}),
+  };
+
   let cred: PublicKeyCredential | null;
   try {
-    cred = (await withTimeout(
-      navigator.credentials.create({
-        publicKey: {
-        challenge: randomBytes(32) as BufferSource,
-        rp: { name: 'KMD Wallet', id: window.location.hostname },
-        user: {
-          id: userId as BufferSource,
-          // Not persisted by the authenticator for non-discoverable credentials,
-          // so the wallet name does not leak into the OS passkey manager.
-          name: walletName,
-          displayName: walletName,
-        },
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -7 }, // ES256
-          { type: 'public-key', alg: -257 }, // RS256
-        ],
-        authenticatorSelection: {
-          residentKey: 'discouraged',
-          requireResidentKey: false,
-          userVerification: 'required',
-        },
-          timeout: 120_000,
-          attestation: 'none',
-          extensions: prfExtension(salt),
-        },
-      }),
-      'Creating the passkey',
-    )) as PublicKeyCredential | null;
+    cred = (await runCeremony('create', { publicKey }, (o) => navigator.credentials.create(o), {
+      rpId: publicKey.rp.id,
+      residentKey,
+      userVerification,
+      withPrf,
+    })) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);
   }
@@ -163,6 +211,13 @@ export async function registerPasskey(
 
   const credentialId = toBase64(cred.rawId);
   const ext = cred.getClientExtensionResults() as PrfExtensionResults;
+  logPasskey('create: extension results', {
+    credentialIdPrefix: credentialId.slice(0, 10),
+    hasPrfKey: 'prf' in (ext as object),
+    prfEnabled: ext.prf?.enabled,
+    prfSecretReturned: !!ext.prf?.results?.first,
+    authenticatorAttachment: cred.authenticatorAttachment,
+  });
 
   if (!ext.prf?.results?.first && ext.prf?.enabled === false) {
     throw new PasskeyError(
@@ -190,30 +245,33 @@ export async function readPrfSecret(
   credentialId: string,
   salt: Uint8Array,
 ): Promise<ArrayBuffer> {
+  const publicKey: PublicKeyCredentialRequestOptions = {
+    challenge: randomBytes(32) as BufferSource,
+    rpId: window.location.hostname,
+    allowCredentials: [{ type: 'public-key', id: fromBase64(credentialId) as BufferSource }],
+    userVerification: 'required',
+    timeout: 120_000,
+    extensions: prfExtension(salt),
+  };
+
   let assertion: PublicKeyCredential | null;
   try {
-    assertion = (await withTimeout(
-      navigator.credentials.get({
-        publicKey: {
-          challenge: randomBytes(32) as BufferSource,
-          rpId: window.location.hostname,
-          allowCredentials: [
-            { type: 'public-key', id: fromBase64(credentialId) as BufferSource },
-          ],
-          userVerification: 'required',
-          timeout: 120_000,
-          extensions: prfExtension(salt),
-        },
-      }),
-      'Confirming the passkey',
-    )) as PublicKeyCredential | null;
+    assertion = (await runCeremony('get', { publicKey }, (o) => navigator.credentials.get(o), {
+      rpId: publicKey.rpId,
+      credentialIdPrefix: credentialId.slice(0, 10),
+      userActivation: navigator.userActivation?.isActive ?? null,
+    })) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);
   }
   if (!assertion) throw new PasskeyError('The browser returned no assertion');
 
-  const secret = (assertion.getClientExtensionResults() as PrfExtensionResults).prf?.results
-    ?.first;
+  const ext = assertion.getClientExtensionResults() as PrfExtensionResults;
+  logPasskey('get: extension results', {
+    hasPrfKey: 'prf' in (ext as object),
+    prfSecretReturned: !!ext.prf?.results?.first,
+  });
+  const secret = ext.prf?.results?.first;
   if (!secret) {
     throw new PasskeyError(
       'The authenticator did not return a PRF secret, so the wallet password cannot be unlocked.',

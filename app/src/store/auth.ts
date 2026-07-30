@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { logPasskeyCapabilities } from '../lib/passkeyLog';
 import { listPasskeys, pruneOrphans } from '../lib/passkeyStore';
 import { isPasskeySupported, isPrfLikelyAvailable } from '../lib/webauthn';
 import {
@@ -153,6 +154,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // A passkey record for a wallet KDF no longer knows would unwrap a
         // password that opens nothing, so reconcile against the real list.
         await pruneOrphans(wallets);
+        // Snapshot what this browser claims to support, so any later passkey
+        // failure report opens with the environment it happened in.
+        await logPasskeyCapabilities();
         set({
           phase: 'ready',
           wallets,

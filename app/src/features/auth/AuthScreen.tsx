@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BrandLogo } from '../../components/BrandLogo';
 import { Alert, BackLink, Button, Card, Spinner, TextField } from '../../components/ui';
 import { APP_VERSION } from '../../config/constants';
+import { formatPasskeyLog } from '../../lib/passkeyLog';
 import { validateWalletPassword } from '../../lib/password';
 import { useAuthStore } from '../../store/auth';
 
@@ -156,6 +157,29 @@ function LoginForm({ wallet, onBack }: { wallet: string; onBack: () => void }) {
         )}
       </form>
     </Card>
+  );
+}
+
+/**
+ * Passkey failures happen inside a native dialog the page cannot observe, so a
+ * copyable trace is the difference between a useful bug report and "it didn't
+ * work". Offered right where the failure is seen.
+ */
+function PasskeyReportLink() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(formatPasskeyLog()).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }}
+      className="text-xs text-zinc-500 underline decoration-dotted transition hover:text-emerald-400"
+    >
+      {copied ? 'Diagnostics copied ✓' : 'Copy passkey diagnostics'}
+    </button>
   );
 }
 
@@ -333,7 +357,12 @@ function CreateForm({
             ready, back it up from Settings → Show seed phrase.
           </Alert>
         )}
-        {error && <Alert kind="error">{error}</Alert>}
+        {error && (
+          <div className="space-y-2">
+            <Alert kind="error">{error}</Alert>
+            {withPasskey && <PasskeyReportLink />}
+          </div>
+        )}
         {busy ? (
           <Spinner label={withPasskey ? 'Waiting for your passkey…' : 'Creating wallet…'} />
         ) : (
