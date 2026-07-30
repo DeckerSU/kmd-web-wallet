@@ -97,8 +97,8 @@ const VARIANTS: Variant[] = [
   },
   {
     id: 'platform-resident',
-    label: '10. PRF, UV required, pinned + discoverable',
-    hint: 'Google Password Manager only stores discoverable passkeys, so “discouraged” may be the contradiction. Pairs the pin with residentKey: required.',
+    label: '10. PRF, UV required, pinned + discoverable — the shipping default',
+    hint: 'What the wallet now uses. The only variant that returns a PRF secret on both Linux and Android.',
     opts: {
       withPrf: true,
       userVerification: 'required',
@@ -152,7 +152,10 @@ export default function PasskeyDiagnostics() {
         detail = 'created (PRF was not requested)';
       } else {
         try {
-          await readPrfSecret(cred.credentialId, salt);
+          await readPrfSecret(cred.credentialId, salt, {
+            transports: cred.transports,
+            attachment: cred.attachment ?? undefined,
+          });
           detail = 'created — PRF secret returned on the follow-up assertion ✓';
         } catch (e) {
           detail = `created, but no PRF secret: ${e instanceof Error ? e.message : String(e)}`;

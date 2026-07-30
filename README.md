@@ -96,12 +96,17 @@ HKDF-SHA256 and used as an AES-GCM key (`src/lib/keywrap.ts`). Nothing weaker is
 accepted — if the authenticator will not do PRF, registration fails instead of
 silently storing a password that anything could read.
 
-Credentials are **non-discoverable** (`residentKey: 'discouraged'`) and one is
-registered per wallet, replayed via `allowCredentials`. Syncing them across
-devices would be pointless: the KDF wallet lives in this browser's IndexedDB and
-does not travel, so a synced passkey would unlock nothing elsewhere. A useful
-side effect is that the authenticator stores nothing, so wallet names never
-appear in the OS passkey manager.
+One credential is registered per wallet and replayed via `allowCredentials`.
+They are **discoverable** (`residentKey: 'required'`) — not the privacy-preferred
+choice, since a discoverable credential means the authenticator stores the wallet
+name and it becomes visible in the OS passkey manager. Android forces the issue:
+Google Password Manager there returns no PRF secret whatsoever for a
+non-discoverable credential, creating one and then reporting `prf` absent, which
+would leave a passkey unable to unlock anything.
+
+These credentials sync through the passkey provider while the KDF wallet does
+not, so a passkey may appear on a device that has no matching wallet. That is
+inert: login replays a credential id from the local record and never enumerates.
 
 **Always name an authenticator.** This turned out to matter more than anything
 else in the request. Measured with the bisect panel in the dev console
@@ -113,6 +118,8 @@ else in the request. Measured with the bisect panel in the dev console
 | same, plus `hints: ['client-device']` | hangs |
 | same, `authenticatorAttachment: 'platform'` | created in 4.4s, PRF secret returned |
 | same, `'platform'` + `residentKey: 'required'` | created in 4.4s |
+| **Android**, `'platform'`, `residentKey: 'discouraged'` | created, but **no PRF at all** |
+| **Android**, `'platform'`, `residentKey: 'required'` | created in 2.3s, PRF secret returned |
 | same, `'cross-platform'` (phone or security key) | created in 16.4s |
 
 Leaving the attachment unset sends Chrome into its generic create dialog, whose
@@ -121,9 +128,11 @@ path to Google Password Manager never resolves; naming `'platform'` reaches the
 striking — accepting the default dialog hangs, while choosing "Save another way"
 and then picking Google Password Manager succeeds with an identical request.
 
-Neither PRF, user verification, nor `residentKey` is implicated: each works once
-an attachment is named, which is why credentials stay non-discoverable. `hints`
-is not a substitute. Registration therefore always names one — `'platform'` when
+On Linux neither PRF, user verification nor `residentKey` is implicated once an
+attachment is named. Android narrows it further: only a discoverable credential
+yields a PRF secret there, so that combination — attachment named,
+`residentKey: 'required'` — is the one that works everywhere and the one shipped.
+`hints` is not a substitute for naming the attachment. Registration therefore always names one — `'platform'` when
 a local authenticator is available, otherwise `'cross-platform'` — and a failed
 attempt offers the other route, remembering whichever worked.
 

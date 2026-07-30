@@ -10,11 +10,18 @@ import { logPasskey } from './passkeyLog';
  * It is that the PRF secret, and therefore the wallet password, cannot be
  * recovered from a copy of the browser profile without the authenticator.
  *
- * Credentials are deliberately non-discoverable (`residentKey: 'discouraged'`):
- * the authenticator stores nothing, so wallet names never surface in the OS
- * passkey manager. Syncing them across devices would be pointless anyway — the
- * KDF wallet lives in this browser's IndexedDB and does not travel, so a synced
- * passkey would unlock nothing on another device.
+ * Credentials are discoverable (`residentKey: 'required'`), which is not what we
+ * would pick on privacy grounds — a discoverable credential means the
+ * authenticator stores the wallet name, so it shows up in the OS passkey
+ * manager. It is required for correctness: on Android, Google Password Manager
+ * returns no PRF secret at all for a non-discoverable credential. It creates one
+ * happily and then reports `prf` absent, which would leave a passkey that can
+ * never unlock anything. Discoverable works on every platform measured.
+ *
+ * A side effect is that these credentials sync through the passkey provider,
+ * while the KDF wallet stays in this browser's IndexedDB. A passkey surfacing on
+ * another device therefore unlocks nothing there — harmless, because login only
+ * ever replays a credential id from the local record, never enumerates.
  */
 
 /** Thrown when the user dismissed the OS prompt — not an error worth shouting about. */
@@ -207,7 +214,8 @@ export async function registerPasskey(
   salt: Uint8Array,
   opts: RegisterOptions = {},
 ): Promise<NewCredential> {
-  const residentKey = opts.residentKey ?? 'discouraged';
+  // Discoverable by necessity, not preference — see the note at the top.
+  const residentKey = opts.residentKey ?? 'required';
   const userVerification = opts.userVerification ?? 'required';
   const withPrf = opts.withPrf ?? true;
   const attachment = opts.attachment;
