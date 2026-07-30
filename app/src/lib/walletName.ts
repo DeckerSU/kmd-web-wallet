@@ -8,9 +8,11 @@
  * same way: names should be short, readable and easy to tell apart out loud,
  * rather than opaque ids.
  *
- * Hence adjective-noun pairs. The lists are deliberately calm and concrete —
- * nothing that reads oddly next to someone's money, and no words that sound
- * alike when spoken.
+ * Hence capitalised adjective-noun pairs with a five-digit suffix, as in
+ * `Willow-Lynx-01584`. The words carry the recognisability; the number carries
+ * the uniqueness, so two wallets can share a pleasant name without colliding.
+ * The lists are deliberately calm and concrete - nothing that reads oddly next
+ * to someone's money, and no words that sound alike when spoken.
  */
 
 const ADJECTIVES = [
@@ -33,8 +35,16 @@ const NOUNS = [
   'summit', 'thicket', 'tundra', 'valley', 'willow',
 ];
 
-const pick = <T,>(list: readonly T[]): T =>
-  list[crypto.getRandomValues(new Uint32Array(1))[0] % list.length];
+const randomBelow = (n: number): number =>
+  crypto.getRandomValues(new Uint32Array(1))[0] % n;
+
+const pick = (list: readonly string[]): string => {
+  const word = list[randomBelow(list.length)];
+  return word.charAt(0).toUpperCase() + word.slice(1);
+};
+
+/** Five digits, zero-padded, so every name is the same shape. */
+const suffix = (): string => String(randomBelow(100_000)).padStart(5, '0');
 
 /**
  * A name not already in `taken`.
@@ -48,14 +58,17 @@ const pick = <T,>(list: readonly T[]): T =>
 export function generateWalletName(taken: readonly string[] = []): string {
   const used = new Set(taken.map((n) => n.trim().toLowerCase()));
 
+  // The suffix alone makes a repeat unlikely; the check makes it impossible,
+  // which matters because the name keys both KDF's wallet store and the passkey
+  // records, and a duplicate would quietly point at the wrong wallet.
   for (let attempt = 0; attempt < 40; attempt++) {
-    const candidate = `${pick(ADJECTIVES)}-${pick(NOUNS)}`;
-    if (!used.has(candidate)) return candidate;
+    const candidate = `${pick(ADJECTIVES)}-${pick(NOUNS)}-${suffix()}`;
+    if (!used.has(candidate.toLowerCase())) return candidate;
   }
 
   const base = `${pick(ADJECTIVES)}-${pick(NOUNS)}`;
-  for (let n = 2; ; n++) {
-    const candidate = `${base}-${n}`;
+  for (let n = 0; ; n++) {
+    const candidate = `${base}-${String(n).padStart(5, '0')}`;
     if (!used.has(candidate.toLowerCase())) return candidate;
   }
 }

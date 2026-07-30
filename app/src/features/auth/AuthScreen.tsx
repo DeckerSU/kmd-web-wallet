@@ -303,7 +303,7 @@ function CreateForm({
           value={name}
           onChange={setName}
           error={nameError}
-          hint="Suggested for you — clear it and type your own if you prefer."
+          hint="Suggested for you - clear it and type your own if you prefer. The name cannot be changed later."
           trailing={
             <button
               type="button"
