@@ -84,6 +84,21 @@ The production `dist/` is fully static — host it on any web server or CDN. The
 wasm binary (~36 MB, ~12 MB gzipped) is emitted as a content-hashed asset, so make
 sure your hosting serves it compressed and with long-lived cache headers.
 
+### Versioning
+
+The app version is `major.minor.build`, and **`app/package.json` is the single source
+of truth**. Vite injects it as `__APP_VERSION__` (see `vite.config.ts`), re-exported as
+`APP_VERSION` from `src/config/constants.ts` — read it from there, never hard-code it.
+It is shown on the login screen and in Settings under the KDF version.
+
+Bumping rules:
+
+| Part | When |
+|---|---|
+| `build` | each released build |
+| `minor` | each pull request |
+| `major` | on request only |
+
 ### Developer console
 
 Open the app with `?debug` appended to the URL (e.g. `http://localhost:5173/?debug`)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Modal, Spinner, TextField } from '../../components/ui';
+import { APP_VERSION } from '../../config/constants';
 import { getMnemonic, kdfVersion } from '../../kdf/methods';
 import { useAuthStore } from '../../store/auth';
 
@@ -30,6 +31,10 @@ export default function SettingsModal(props: { onClose: () => void }) {
             <span className="truncate font-mono text-xs leading-5">
               {version ?? '…'}
             </span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-zinc-500">App version</span>
+            <span className="truncate font-mono text-xs leading-5">{APP_VERSION}</span>
           </div>
         </div>
         <RevealSeed />
