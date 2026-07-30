@@ -34,7 +34,10 @@ export default function AuthScreen() {
 }
 
 function WalletList({ onNavigate }: { onNavigate: (v: View) => void }) {
-  const { wallets, error, clearError } = useAuthStore();
+  const { wallets, error, clearError, passkeyWallets, loginWithPasskey, phase } =
+    useAuthStore();
+  const busy = phase === 'authenticating';
+
   return (
     <Card>
       {error && (
@@ -46,24 +49,52 @@ function WalletList({ onNavigate }: { onNavigate: (v: View) => void }) {
         <>
           <h2 className="mb-3 text-sm font-medium text-zinc-400">Your wallets</h2>
           <ul className="mb-5 space-y-2">
-            {wallets.map((w) => (
-              <li key={w}>
-                <button
-                  onClick={() => {
-                    clearError();
-                    onNavigate({ name: 'login', wallet: w });
-                  }}
-                  className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left transition hover:border-emerald-500/50 hover:bg-zinc-800/80"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-emerald-400">
-                    {w.charAt(0).toUpperCase()}
-                  </span>
-                  <span className="flex-1 truncate text-sm font-medium">{w}</span>
-                  <span className="text-zinc-600">→</span>
-                </button>
-              </li>
-            ))}
+            {wallets.map((w) => {
+              const hasPasskey = passkeyWallets.includes(w);
+              return (
+                <li key={w}>
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      clearError();
+                      // A registered passkey is the fast path; the password
+                      // form stays one tap away for when it fails.
+                      if (hasPasskey) void loginWithPasskey(w);
+                      else onNavigate({ name: 'login', wallet: w });
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left transition hover:border-emerald-500/50 hover:bg-zinc-800/80 disabled:opacity-50"
+                  >
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-800 text-sm font-bold text-emerald-400">
+                      {w.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="flex-1 truncate text-sm font-medium">{w}</span>
+                    {hasPasskey && (
+                      <span
+                        title="Unlock with passkey"
+                        aria-label={`${w} has a passkey`}
+                        className="rounded-full border border-emerald-500/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-400"
+                      >
+                        🔑 PASSKEY
+                      </span>
+                    )}
+                    <span className="text-zinc-600">→</span>
+                  </button>
+                  {hasPasskey && (
+                    <button
+                      onClick={() => {
+                        clearError();
+                        onNavigate({ name: 'login', wallet: w });
+                      }}
+                      className="mt-1 pl-1 text-xs text-zinc-500 transition hover:text-emerald-400"
+                    >
+                      Use password instead
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
+          {busy && <Spinner label="Unlocking…" />}
         </>
       )}
       <div className="space-y-2">
@@ -135,13 +166,19 @@ function CreateForm({
   mode: 'create' | 'import';
   onBack: () => void;
 }) {
-  const { wallets, create, error, phase } = useAuthStore();
+  const { wallets, create, createWithPasskey, error, phase, passkeySupported } =
+    useAuthStore();
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [seed, setSeed] = useState('');
   const [touched, setTouched] = useState(false);
+  const [usePasskey, setUsePasskey] = useState(passkeySupported);
   const busy = phase === 'authenticating';
+
+  // With a passkey the password is generated, so the password fields — and
+  // their validation — drop out of the form entirely.
+  const withPasskey = passkeySupported && usePasskey;
 
   const nameError = !touched
     ? null
@@ -150,8 +187,9 @@ function CreateForm({
       : wallets.includes(name.trim())
         ? 'A wallet with this name already exists'
         : null;
-  const passwordError = touched ? validateWalletPassword(password) : null;
-  const confirmError = touched && confirm !== password ? "Passwords don't match" : null;
+  const passwordError = touched && !withPasskey ? validateWalletPassword(password) : null;
+  const confirmError =
+    touched && !withPasskey && confirm !== password ? "Passwords don't match" : null;
   const seedError =
     mode === 'import' && touched && seed.trim().split(/\s+/).length < 12
       ? 'Enter your seed phrase (12 or 24 words)'
@@ -160,21 +198,15 @@ function CreateForm({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (
-      name.trim().length === 0 ||
-      wallets.includes(name.trim()) ||
-      validateWalletPassword(password) ||
-      confirm !== password
-    ) {
-      return;
-    }
-    if (mode === 'create') {
-      // No seed passed — KDF generates and stores a fresh mnemonic itself.
-      void create(name.trim(), password);
-    } else {
-      if (seed.trim().split(/\s+/).length < 12) return;
-      void create(name.trim(), password, seed.trim());
-    }
+    if (name.trim().length === 0 || wallets.includes(name.trim())) return;
+    if (!withPasskey && (validateWalletPassword(password) || confirm !== password)) return;
+
+    const mnemonic = mode === 'import' ? seed.trim() : undefined;
+    if (mode === 'import' && (mnemonic?.split(/\s+/).length ?? 0) < 12) return;
+
+    // No mnemonic passed on create — KDF generates and stores a fresh one.
+    if (withPasskey) void createWithPasskey(name.trim(), mnemonic);
+    else void create(name.trim(), password, mnemonic);
   };
 
   return (
@@ -191,21 +223,43 @@ function CreateForm({
           autoFocus
           error={nameError}
         />
-        <TextField
-          label="Password"
-          type="password"
-          value={password}
-          onChange={setPassword}
-          error={passwordError}
-          hint="Min 8 chars, with digit, upper/lowercase and special character"
-        />
-        <TextField
-          label="Confirm password"
-          type="password"
-          value={confirm}
-          onChange={setConfirm}
-          error={confirmError}
-        />
+        {passkeySupported && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+            <input
+              type="checkbox"
+              checked={usePasskey}
+              onChange={(e) => setUsePasskey(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-zinc-200">Protect with a passkey</span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                Unlock with your fingerprint, face or device PIN. A strong password is
+                generated for you — you&apos;ll see it once it&apos;s ready, and any time in
+                Settings.
+              </span>
+            </span>
+          </label>
+        )}
+        {!withPasskey && (
+          <>
+            <TextField
+              label="Password"
+              type="password"
+              value={password}
+              onChange={setPassword}
+              error={passwordError}
+              hint="Min 8 chars, with digit, upper/lowercase and special character"
+            />
+            <TextField
+              label="Confirm password"
+              type="password"
+              value={confirm}
+              onChange={setConfirm}
+              error={confirmError}
+            />
+          </>
+        )}
         {mode === 'import' && (
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-zinc-300">Seed phrase</span>
@@ -227,7 +281,7 @@ function CreateForm({
         )}
         {error && <Alert kind="error">{error}</Alert>}
         {busy ? (
-          <Spinner label="Creating wallet…" />
+          <Spinner label={withPasskey ? 'Waiting for your passkey…' : 'Creating wallet…'} />
         ) : (
           <Button type="submit" className="w-full">
             {mode === 'create' ? 'Create wallet' : 'Import wallet'}

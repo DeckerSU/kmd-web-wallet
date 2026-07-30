@@ -1,4 +1,12 @@
 import { create } from 'zustand';
+import { listPasskeys, pruneOrphans } from '../lib/passkeyStore';
+import { isPasskeySupported, isPrfLikelyAvailable } from '../lib/webauthn';
+import {
+  enrollPasskey,
+  PasskeyCancelled,
+  removePasskey,
+  unlockPassword,
+} from '../services/passkey';
 import {
   createWallet,
   loginWallet,
@@ -29,15 +37,38 @@ interface AuthState {
    */
   justCreated: boolean;
 
+  /** Whether this browser can register PRF-capable passkeys at all. */
+  passkeySupported: boolean;
+  /** Wallet names that have a passkey registered in this browser. */
+  passkeyWallets: string[];
+  /**
+   * Set once after creating a wallet with a passkey: the generated password the
+   * user must record, since a passkey means they never chose one. Cleared as
+   * soon as the backup step is acknowledged.
+   */
+  generatedPassword: string | null;
+
   boot: () => Promise<void>;
   login: (name: string, password: string) => Promise<boolean>;
+  /** Unlock via passkey: derive the stored password, then log in normally. */
+  loginWithPasskey: (name: string) => Promise<boolean>;
   /**
    * Register a wallet. Omit `mnemonic` to have KDF generate a fresh seed
    * phrase itself; pass one to import an existing seed.
    */
   create: (name: string, password: string, mnemonic?: string) => Promise<boolean>;
+  /**
+   * Register a wallet protected by a passkey. The password is generated, never
+   * typed, and surfaced through `generatedPassword` for the backup step.
+   */
+  createWithPasskey: (name: string, mnemonic?: string) => Promise<boolean>;
+  /** Attach a passkey to the wallet in the current session. */
+  addPasskey: (name: string, password: string) => Promise<string | null>;
+  forgetPasskey: (name: string) => Promise<void>;
+  refreshPasskeys: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
+  clearGeneratedPassword: () => void;
   dismissBackupReminder: () => void;
 }
 
@@ -51,6 +82,15 @@ function userMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Names of wallets with a passkey record, for the login list's key badges. */
+async function loadPasskeyWallets(): Promise<string[]> {
+  try {
+    return (await listPasskeys()).map((r) => r.walletName);
+  } catch {
+    return [];
+  }
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   phase: 'boot',
   wallets: [],
@@ -58,6 +98,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
   bootProgress: null,
   justCreated: false,
+  passkeySupported: false,
+  passkeyWallets: [],
+  generatedPassword: null,
 
   boot: () => {
     bootInFlight ??= (async () => {
@@ -66,7 +109,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const wallets = await startNoAuthSession((loaded, total) =>
           set({ bootProgress: { loaded, total } }),
         );
-        set({ phase: 'ready', wallets, bootProgress: null });
+        // A passkey record for a wallet KDF no longer knows would unwrap a
+        // password that opens nothing, so reconcile against the real list.
+        await pruneOrphans(wallets);
+        set({
+          phase: 'ready',
+          wallets,
+          bootProgress: null,
+          passkeySupported: isPasskeySupported() && (await isPrfLikelyAvailable()),
+          passkeyWallets: await loadPasskeyWallets(),
+        });
       } catch (e) {
         set({ phase: 'boot-error', error: userMessage(e), bootProgress: null });
       } finally {
@@ -76,6 +128,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return bootInFlight;
   },
 
+  refreshPasskeys: async () => set({ passkeyWallets: await loadPasskeyWallets() }),
+
   login: async (name, password) => {
     set({ phase: 'authenticating', error: null });
     try {
@@ -84,6 +138,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return true;
     } catch (e) {
       set({ phase: 'ready', error: userMessage(e) });
+      return false;
+    }
+  },
+
+  loginWithPasskey: async (name) => {
+    set({ phase: 'authenticating', error: null });
+    try {
+      const password = await unlockPassword(name);
+      await loginWallet(name, password);
+      set({ phase: 'authenticated', walletName: name, justCreated: false });
+      return true;
+    } catch (e) {
+      // Dismissing the OS prompt is a choice, not a failure — say nothing.
+      set({ phase: 'ready', error: e instanceof PasskeyCancelled ? null : userMessage(e) });
       return false;
     }
   },
@@ -102,17 +170,68 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  createWithPasskey: async (name, mnemonic) => {
+    set({ phase: 'authenticating', error: null });
+    try {
+      // Enrol first: if the passkey ceremony fails we must not be left with a
+      // wallet whose generated password nobody has ever seen.
+      const password = await enrollPasskey(name);
+      try {
+        await createWallet(name, password, mnemonic);
+      } catch (e) {
+        await removePasskey(name).catch(() => {});
+        throw e;
+      }
+      set({
+        phase: 'authenticated',
+        walletName: name,
+        justCreated: !mnemonic,
+        generatedPassword: password,
+        passkeyWallets: await loadPasskeyWallets(),
+      });
+      return true;
+    } catch (e) {
+      set({ phase: 'ready', error: e instanceof PasskeyCancelled ? null : userMessage(e) });
+      return false;
+    }
+  },
+
+  addPasskey: async (name, password) => {
+    try {
+      const stored = await enrollPasskey(name, password);
+      set({ passkeyWallets: await loadPasskeyWallets() });
+      return stored;
+    } catch (e) {
+      if (e instanceof PasskeyCancelled) return null;
+      throw e;
+    }
+  },
+
+  forgetPasskey: async (name) => {
+    await removePasskey(name);
+    set({ passkeyWallets: await loadPasskeyWallets() });
+  },
+
   logout: async () => {
     const { walletName } = get();
-    set({ phase: 'boot', walletName: null, error: null, justCreated: false });
+    set({
+      phase: 'boot',
+      walletName: null,
+      error: null,
+      justCreated: false,
+      // Never let a generated password outlive its session.
+      generatedPassword: null,
+    });
     try {
       const wallets = await logoutWallet();
-      set({ phase: 'ready', wallets });
+      await pruneOrphans(wallets);
+      set({ phase: 'ready', wallets, passkeyWallets: await loadPasskeyWallets() });
     } catch (e) {
       set({ phase: 'boot-error', walletName, error: userMessage(e) });
     }
   },
 
   clearError: () => set({ error: null }),
+  clearGeneratedPassword: () => set({ generatedPassword: null }),
   dismissBackupReminder: () => set({ justCreated: false }),
 }));

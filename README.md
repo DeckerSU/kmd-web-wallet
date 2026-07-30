@@ -84,6 +84,39 @@ The production `dist/` is fully static — host it on any web server or CDN. The
 wasm binary (~36 MB, ~12 MB gzipped) is emitted as a content-hashed asset, so make
 sure your hosting serves it compressed and with long-lived cache headers.
 
+### Passkey login
+
+A wallet can be unlocked with a passkey instead of a typed password. KDF still
+needs a password, so one is generated at creation, shown to the user once, and
+kept encrypted in IndexedDB under a key only the authenticator can reproduce.
+
+The key comes from the **WebAuthn PRF extension**: for a given (credential, salt)
+pair the authenticator returns a stable 32-byte secret, which is run through
+HKDF-SHA256 and used as an AES-GCM key (`src/lib/keywrap.ts`). Nothing weaker is
+accepted — if the authenticator will not do PRF, registration fails instead of
+silently storing a password that anything could read.
+
+Credentials are **non-discoverable** (`residentKey: 'discouraged'`) and one is
+registered per wallet, replayed via `allowCredentials`. Syncing them across
+devices would be pointless: the KDF wallet lives in this browser's IndexedDB and
+does not travel, so a synced passkey would unlock nothing elsewhere. A useful
+side effect is that the authenticator stores nothing, so wallet names never
+appear in the OS passkey manager.
+
+**What this does and does not protect.** The relying party is the page itself —
+there is no server to verify an assertion against, so this is not protection
+against a forged login. What it gives is protection at rest: a copy of the
+browser profile yields only ciphertext, useless without the authenticator. A
+compromised page (XSS, a tampered build) is not defended against by any
+client-side scheme, this one included.
+
+**Recovery.** The generated password is not a convenience, it is the second key.
+Lose the authenticator and the ciphertext can never be opened again, so the
+creation flow makes the user acknowledge having saved it, and Settings can show
+it again behind the same passkey prompt. Failing both, the seed phrase still
+restores the wallet from scratch. Password login therefore always remains
+available.
+
 ### Versioning
 
 The app version is `major.minor.build`, and **`app/package.json` is the single source
