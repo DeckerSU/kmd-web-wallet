@@ -241,6 +241,36 @@ from scratch. Password login therefore always remains available, and enrolment
 verifies the wrap round-trips before persisting, so a record that cannot be
 opened later is never written.
 
+### Boot diagnostics
+
+Startup is several steps, and they used to be indistinguishable: the screen read
+"Downloading wallet engine…" until the whole sequence finished, so a slow wasm
+compile or a node that would not come up both looked like a stuck download that
+had visibly reached 100%.
+
+The console now prints a phase breakdown, KDF's own log lines timestamped
+relative to node start, and how the wasm was actually obtained:
+
+```
+[boot] downloading took 73 ms → compiling
+[boot] wasm over network: transfer=34.2MB encoded=34.1MB decoded=34.1MB in 56ms
+[boot] compiling took 44 ms → starting-node
+[boot:kdf +38ms] … INFO Dialed /dns/seed01.kmdefi.net/tcp/32336/wss
+[boot] starting-node took 62 ms → waiting-rpc
+[boot] RPC up after 1 ms
+[boot] ready in 207 ms — downloading=73ms compiling=44ms starting-node=62ms …
+```
+
+The `[boot:kdf …]` lines matter most: between "node started" and "RPC up" the
+node brings up its P2P seed connections, which is the likeliest place for a
+machine-specific stall and is otherwise a black box.
+
+**The progress percentage was also wrong.** `Content-Length` counts bytes on the
+wire while the reader yields decoded bytes, so for the gzipped wasm the display
+read `34.1 / 11.2 MB (100%)` — a ratio of ~300%, clamped. The total is now
+dropped when the response is encoded, or as soon as decoded bytes overtake it,
+and progress shows bytes without a percentage rather than a confident wrong one.
+
 ### Versioning
 
 The app version is `major.minor.build`, and **`app/package.json` is the single source
@@ -266,8 +296,16 @@ call the `version` RPC, and watch live KDF logs.
 
 Defined in `app/src/config/`:
 
-- **netid:** `6133`; P2P seed nodes (`seed01/seed03.kmdefi.net`, `kdfseed1.decker.im`,
-  `staking1/staking2.gleec.com`) are dialed over WSS on port 32336.
+- **P2P is off** (`disable_p2p: true`, `KDF_ENABLE_P2P` in `src/config/constants.ts`).
+  Nothing the wallet does needs it — activation, balances, history and withdrawals
+  all talk to Electrum servers or JSON-RPC nodes directly. P2P serves swaps, the
+  orderbook and peer health checks, none of which exist yet, and leaving it on
+  costs a permanent WSS connection per seed node and puts an unreachable seed node
+  on the startup path. Turning it back on also restores `seednodes`: KDF's precheck
+  rejects a config carrying both (*"Cannot disable P2P while seed nodes are
+  configured"*), so the two move together.
+- **netid:** `6133`; the seed nodes used when P2P is enabled (`seed01/seed03.kmdefi.net`,
+  `kdfseed1.decker.im`, `staking1/staking2.gleec.com`) are dialed over WSS on port 32336.
 - **Electrum servers** (WSS only — plain TCP/SSL sockets are not available to browser
   code): `kmd.electrum{1,2}.cipig.net:30001` for KMD,
   `electrum.kmdclassic.com:50004` for KMDCL,

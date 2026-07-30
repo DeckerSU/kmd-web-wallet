@@ -1,3 +1,10 @@
+import {
+  finishBootTimings,
+  logWasmTiming,
+  markBootPhase,
+  traceKdfDuringBoot,
+  type OnBootStage,
+} from '../kdf/bootStage';
 import { generateRpcPassword, kdf, type LoadProgress } from '../kdf/client';
 import { buildNoAuthConf, buildStartupConf, type WalletCredentials } from '../kdf/conf';
 import { MainStatus, StartupResultCode, startupResultName } from '../kdf/types';
@@ -27,12 +34,17 @@ interface GetWalletNamesResult {
   activated_wallet: string | null;
 }
 
-async function restartWith(conf: ReturnType<typeof buildNoAuthConf>): Promise<void> {
+async function restartWith(
+  conf: ReturnType<typeof buildNoAuthConf>,
+  onStage?: OnBootStage,
+): Promise<void> {
   await kdf.load();
   if (kdf.status() !== MainStatus.NotRunning) {
     await kdf.stop();
   }
-  const outcome = await kdf.start(conf);
+  markBootPhase('starting-node');
+  onStage?.({ phase: 'starting-node' });
+  const outcome = await kdf.start(conf, undefined, onStage);
   if (outcome.code === StartupResultCode.Ok) return;
 
   const message = outcome.message ?? startupResultName(outcome.code);
@@ -49,10 +61,20 @@ async function restartWith(conf: ReturnType<typeof buildNoAuthConf>): Promise<vo
 }
 
 /** Start (or restart) the pre-auth session and list stored wallets. */
-export async function startNoAuthSession(onLoadProgress?: LoadProgress): Promise<string[]> {
-  await kdf.load(onLoadProgress);
-  await restartWith(buildNoAuthConf(generateRpcPassword()));
+export async function startNoAuthSession(
+  onLoadProgress?: LoadProgress,
+  onStage?: OnBootStage,
+): Promise<string[]> {
+  await kdf.load(onLoadProgress, onStage);
+  logWasmTiming();
+  // The node's own logs are the only view into what happens between start and
+  // RPC coming up; P2P seed connections are established in there.
+  traceKdfDuringBoot((fn) => kdf.onLog(fn));
+  await restartWith(buildNoAuthConf(generateRpcPassword()), onStage);
+  markBootPhase('reading-wallets');
+  onStage?.({ phase: 'reading-wallets' });
   const res = await kdf.rpc2<GetWalletNamesResult>('get_wallet_names');
+  finishBootTimings();
   return res.wallet_names;
 }
 

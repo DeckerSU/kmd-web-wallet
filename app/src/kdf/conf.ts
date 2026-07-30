@@ -1,4 +1,5 @@
 import {
+  KDF_ENABLE_P2P,
   KDF_EVENT_WORKER_PATH,
   KDF_GUI_ID,
   KDF_NETID,
@@ -22,7 +23,9 @@ function baseConf(rpcPassword: string): KdfStartupConf {
     gui: KDF_GUI_ID,
     netid: KDF_NETID,
     rpc_password: rpcPassword,
-    seednodes: KDF_SEED_NODES,
+    // KDF's precheck rejects `disable_p2p` alongside a seednodes list, so the
+    // list is omitted rather than emptied when P2P is off.
+    ...(KDF_ENABLE_P2P ? { seednodes: KDF_SEED_NODES } : { disable_p2p: true }),
     coins: WALLET_COINS.map((c) => c.config),
     enable_hd: false,
     allow_weak_password: false,
