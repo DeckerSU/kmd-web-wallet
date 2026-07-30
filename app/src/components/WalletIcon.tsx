@@ -1,3 +1,4 @@
+import { shortenAddress } from '../lib/format';
 import { identiconFor } from '../lib/identicon';
 
 /**
@@ -40,6 +41,13 @@ export function WalletIcon(props: {
       className={`shrink-0 ${props.className ?? ''}`}
       style={{ borderRadius: radius }}
     >
+      {/*
+        SVG has no `title` attribute — a <title> child is what browsers render
+        as a tooltip. Only present when there is a key to show; the letter
+        fallback above deliberately has none, since "no key known yet" is not
+        worth a tooltip saying nothing.
+      */}
+      <title>{shortenAddress(props.publicKey, 8)}</title>
       <rect width={grid} height={grid} fill={background} />
       {cells.map((c) => (
         // Rendered edge-to-edge with a hair of overlap; sub-pixel gaps between
