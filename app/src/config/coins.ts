@@ -76,10 +76,10 @@ export const KMD: WalletCoin = {
     protocol: { type: 'UTXO' },
     derivation_path: "m/44'/141'",
   },
+  // electrum3 dropped — the host stopped answering on WSS.
   electrums: [
     { url: 'kmd.electrum1.cipig.net:30001', protocol: 'WSS' },
     { url: 'kmd.electrum2.cipig.net:30001', protocol: 'WSS' },
-    { url: 'kmd.electrum3.cipig.net:30001', protocol: 'WSS' },
   ],
   faucetUrl: 'https://faucet.decker.im/',
   explorerTxUrl: (txid) => `https://kmdexplorer.io/tx/${txid}`,
@@ -163,16 +163,16 @@ export const ARRR: WalletCoin = {
     requires_notarization: false,
   },
   // WSS electrum endpoints (browser-compatible) from coins/electrums/ARRR.
+  // electrum3 dropped — the whole host is unreachable, on WSS and on its
+  // lightwalletd port alike, so both entries for it are gone.
   electrums: [
     { url: 'arrr.electrum1.cipig.net:30008', protocol: 'WSS' },
     { url: 'arrr.electrum2.cipig.net:30008', protocol: 'WSS' },
-    { url: 'arrr.electrum3.cipig.net:30008', protocol: 'WSS' },
   ],
   // gRPC-web lightwalletd (https) from coins/light_wallet_d/ARRR_WSS.
   lightwalletd: [
     'https://electrum1.cipig.net:19447',
     'https://electrum2.cipig.net:19447',
-    'https://electrum3.cipig.net:19447',
   ],
   explorerTxUrl: (txid) => `https://explorer.pirate.black/tx/${txid}`,
 };

@@ -112,10 +112,11 @@ Defined in `app/src/config/`:
 - **netid:** `6133`; P2P seed nodes (`seed01/seed03.kmdefi.net`, `kdfseed1.decker.im`,
   `staking1/staking2.gleec.com`) are dialed over WSS on port 32336.
 - **Electrum servers** (WSS only — plain TCP/SSL sockets are not available to browser
-  code): `kmd.electrum{1,2,3}.cipig.net:30001` for KMD,
+  code): `kmd.electrum{1,2}.cipig.net:30001` for KMD,
   `electrum.kmdclassic.com:50004` for KMDCL,
-  `arrr.electrum{1,2,3}.cipig.net:30008` plus lightwalletd on
-  `electrum{1,2,3}.cipig.net:19447` for ARRR.
+  `arrr.electrum{1,2}.cipig.net:30008` plus lightwalletd on
+  `electrum{1,2}.cipig.net:19447` for ARRR.
+  (`electrum3.cipig.net` is omitted — the host answers on neither port.)
 - **EVM JSON-RPC:** `https://evm-rpc.gleec.com` for GLEEC (chain_id `11169`). KDF also
   supports `wss://evm-ws.gleec.com`, but HTTPS needs no connection loop.
 
