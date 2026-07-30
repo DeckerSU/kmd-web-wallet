@@ -40,7 +40,8 @@ export function TextField(props: {
   placeholder?: string;
   autoFocus?: boolean;
   error?: string | null;
-  hint?: string;
+  /** Accepts markup, so a hint can emphasise the part that matters. */
+  hint?: ReactNode;
   /** Control rendered inside the field, on the right. Reserves its own space. */
   trailing?: ReactNode;
 }) {
