@@ -105,6 +105,19 @@ export function isPasskeySupported(): boolean {
 }
 
 /**
+ * Whether a local authenticator capable of user verification is present. Used
+ * to decide which authenticator to aim registration at.
+ */
+export async function hasPlatformAuthenticator(): Promise<boolean> {
+  if (!isPasskeySupported()) return false;
+  try {
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Whether the browser advertises the PRF extension. This is a browser-level
  * capability check; whether the *authenticator* the user picks actually honours
  * PRF is only known after a ceremony, which is why registration verifies the
@@ -159,11 +172,15 @@ export interface NewCredential {
  *
  * Providers differ on when they hand the secret over: some return it straight
  * from `create()`, others only from a subsequent assertion. This function does
- * **not** chain that assertion itself. Google Password Manager on Linux accepts
- * the PIN, closes its dialog, and then never resolves a `get()` issued from the
- * same call stack — the promise simply hangs. Returning `prfSecret: null` lets
- * the caller ask the user to confirm again, which starts a fresh ceremony with
- * a real user gesture behind it.
+ * **not** chain that assertion itself — returning `prfSecret: null` lets the
+ * caller ask the user to confirm again, so the second ceremony runs behind a
+ * real user gesture rather than from the same call stack.
+ *
+ * Callers should always pass an `attachment`. Leaving `authenticatorAttachment`
+ * unset makes Chrome open its generic create dialog, and on Linux that route to
+ * Google Password Manager never resolves — while naming 'platform' reaches the
+ * identical provider in about four seconds. `hints` alone does not substitute;
+ * only the attachment does.
  *
  * A provider that answers `prf.enabled === false` is rejected outright: storing
  * a password we could never unwrap would be worse than having no passkey.

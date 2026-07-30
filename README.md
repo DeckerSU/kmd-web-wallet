@@ -103,28 +103,29 @@ does not travel, so a synced passkey would unlock nothing elsewhere. A useful
 side effect is that the authenticator stores nothing, so wallet names never
 appear in the OS passkey manager.
 
-**Google Password Manager on Linux is unreliable here — but the cause is not
-settled.** Measured with the bisect panel in the dev console (`?debug`), on
-Chrome 150 / X11:
+**Always name an authenticator.** This turned out to matter more than anything
+else in the request. Measured with the bisect panel in the dev console
+(`?debug`), on Chrome 150 / X11 with Google Password Manager:
 
 | Request | Result |
 |---|---|
-| no PRF, `userVerification: 'discouraged'` | created in 2.2s |
-| no PRF, `'preferred'` or `'required'` | hangs |
-| PRF, any `userVerification` | hangs |
-| PRF, `'required'`, `authenticatorAttachment: 'cross-platform'` | created in 22.7s, PRF secret returned |
+| PRF, `userVerification: 'required'`, attachment **unset** | hangs indefinitely |
+| same, plus `hints: ['client-device']` | hangs |
+| same, `authenticatorAttachment: 'platform'` | created in 4.4s, PRF secret returned |
+| same, `'platform'` + `residentKey: 'required'` | created in 4.4s |
+| same, `'cross-platform'` (phone or security key) | created in 16.4s |
 
-That reads as "the platform provider stalls on anything non-trivial", and the
-same options succeed on a phone or security key — so the request itself is
-fine. But one manual observation contradicts the simple story: accepting the
-browser's default create dialog hangs, while choosing *"Save another way" and
-then picking Google Password Manager* — nominally the same destination —
-succeeds with the identical request. So what fails may be the route Chrome
-takes to the provider rather than the provider itself. None of the variants
-above pinned `authenticatorAttachment: 'platform'`, which is the closest
-programmatic equivalent of that manual choice; variants 8-10 in the panel cover
-it. Until that is resolved, a failed enrolment offers a phone or security key,
-and a route that works is remembered for the browser.
+Leaving the attachment unset sends Chrome into its generic create dialog, whose
+path to Google Password Manager never resolves; naming `'platform'` reaches the
+*same* provider directly and finishes in seconds. The manual equivalent is
+striking — accepting the default dialog hangs, while choosing "Save another way"
+and then picking Google Password Manager succeeds with an identical request.
+
+Neither PRF, user verification, nor `residentKey` is implicated: each works once
+an attachment is named, which is why credentials stay non-discoverable. `hints`
+is not a substitute. Registration therefore always names one — `'platform'` when
+a local authenticator is available, otherwise `'cross-platform'` — and a failed
+attempt offers the other route, remembering whichever worked.
 
 **Routing the assertion.** `allowCredentials` carries the transports recorded at
 registration, plus a `hints` value derived from where the credential was

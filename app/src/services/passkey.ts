@@ -9,6 +9,7 @@ import {
 } from '../lib/passkeyStore';
 import { generateWalletPassword } from '../lib/password';
 import {
+  hasPlatformAuthenticator,
   PasskeyCancelled,
   PasskeyError,
   readPrfSecret,
@@ -59,9 +60,15 @@ export async function beginEnrollment(
 ): Promise<EnrollmentStep> {
   const walletPassword = password ?? generateWalletPassword();
   const salt = randomBytes(32);
-  // An explicit choice wins; otherwise reuse whatever worked here before, and
-  // fall back to letting the browser decide on a first run.
-  const useAttachment = attachment ?? loadPreferredAttachment() ?? undefined;
+  // Always name an authenticator. Leaving `authenticatorAttachment` unset sends
+  // Chrome into its generic create dialog, whose route to Google Password
+  // Manager hangs indefinitely on Linux; naming 'platform' reaches the very
+  // same provider directly and completes in a few seconds. Measured, and the
+  // single most consequential line in this file.
+  const useAttachment =
+    attachment ??
+    loadPreferredAttachment() ??
+    ((await hasPlatformAuthenticator()) ? 'platform' : 'cross-platform');
   const cred = await registerPasskey(walletName, salt, { attachment: useAttachment });
   // Trust what came back over what was asked for — the browser's dialog lets
   // the user redirect the credential to a phone regardless of our request.
