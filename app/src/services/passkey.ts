@@ -5,7 +5,6 @@ import {
   loadPreferredAttachment,
   savePasskey,
   savePreferredAttachment,
-  touchPasskey,
   type PasskeyRecord,
 } from '../lib/passkeyStore';
 import { generateWalletPassword } from '../lib/password';
@@ -64,7 +63,10 @@ export async function beginEnrollment(
   // fall back to letting the browser decide on a first run.
   const useAttachment = attachment ?? loadPreferredAttachment() ?? undefined;
   const cred = await registerPasskey(walletName, salt, { attachment: useAttachment });
-  if (useAttachment) savePreferredAttachment(useAttachment);
+  // Trust what came back over what was asked for — the browser's dialog lets
+  // the user redirect the credential to a phone regardless of our request.
+  const actualAttachment = cred.attachment ?? useAttachment;
+  if (actualAttachment) savePreferredAttachment(actualAttachment);
 
   const pending: PendingEnrollment = {
     walletName,
@@ -73,7 +75,7 @@ export async function beginEnrollment(
     credentialId: cred.credentialId,
     userId: cred.userId,
     transports: cred.transports,
-    attachment: useAttachment,
+    attachment: actualAttachment,
   };
 
   if (!cred.prfSecret) return { done: false, pending };
@@ -83,7 +85,10 @@ export async function beginEnrollment(
 
 /** Phase two: re-run the ceremony from a user gesture and store the result. */
 export async function completeEnrollment(pending: PendingEnrollment): Promise<string> {
-  const secret = await readPrfSecret(pending.credentialId, pending.salt);
+  const secret = await readPrfSecret(pending.credentialId, pending.salt, {
+    transports: pending.transports,
+    attachment: pending.attachment,
+  });
   await persist(pending, secret);
   return pending.password;
 }
@@ -108,11 +113,26 @@ async function persist(pending: PendingEnrollment, prfSecret: ArrayBuffer): Prom
     prfSalt: toBase64(salt),
     wrapped,
     transports: pending.transports,
+    attachment: pending.attachment,
     createdAt: Date.now(),
     lastUsedAt: null,
     version: 1,
   };
   await savePasskey(record);
+}
+
+/**
+ * Records written before attachment was tracked have no such field. The
+ * transports recorded at registration still say where the credential lives, so
+ * infer from those rather than making the user re-register.
+ */
+function inferAttachment(rec: PasskeyRecord): AuthenticatorAttachment | undefined {
+  if (rec.attachment) return rec.attachment;
+  if (!rec.transports?.length) return undefined;
+  const roaming = ['hybrid', 'usb', 'nfc', 'ble', 'cable', 'smart-card'];
+  if (rec.transports.some((t) => roaming.includes(t))) return 'cross-platform';
+  if (rec.transports.includes('internal')) return 'platform';
+  return undefined;
 }
 
 /**
@@ -123,7 +143,12 @@ export async function unlockPassword(walletName: string): Promise<string> {
   const rec = await getPasskey(walletName);
   if (!rec) throw new PasskeyError(`No passkey is registered for “${walletName}”.`);
 
-  const secret = await readPrfSecret(rec.credentialId, fromBase64(rec.prfSalt));
+  // Route the assertion at the authenticator the credential actually lives on.
+  const attachment = inferAttachment(rec);
+  const secret = await readPrfSecret(rec.credentialId, fromBase64(rec.prfSalt), {
+    transports: rec.transports,
+    attachment,
+  });
   let password: string;
   try {
     password = await unwrapSecret(secret, fromBase64(rec.prfSalt), walletName, rec.wrapped);
@@ -135,7 +160,8 @@ export async function unlockPassword(walletName: string): Promise<string> {
       'The passkey no longer matches this wallet. Unlock with your password instead, then re-register the passkey.',
     );
   }
-  await touchPasskey(walletName);
+  // Persist what we inferred, so the next unlock does not have to guess again.
+  await savePasskey({ ...rec, attachment, lastUsedAt: Date.now() });
   return password;
 }
 

@@ -119,6 +119,14 @@ perfectly. The request is fine; that provider is not. When enrolment fails the
 UI therefore offers a phone or security key, and once that route works it is
 remembered for the browser, so nobody is walked into the same stall twice.
 
+**Routing the assertion.** `allowCredentials` carries the transports recorded at
+registration, plus a `hints` value derived from where the credential was
+actually created — read from `authenticatorAttachment` on the response, not from
+what was requested, since the browser's own dialog lets the user redirect a
+passkey to their phone. Without those signals the browser has no idea where to
+look and starts with the local provider, which is exactly the one that stalls:
+a passkey created on a phone would then be unusable for login.
+
 **Two-phase enrolment.** Providers disagree on when they release the PRF secret:
 some return it from `create()`, others only from a later assertion. That second
 ceremony is never chained automatically — Google Password Manager on Linux

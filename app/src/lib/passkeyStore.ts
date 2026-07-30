@@ -26,6 +26,11 @@ export interface PasskeyRecord {
   /** The KDF wallet password, encrypted under the PRF-derived key. */
   wrapped: WrappedSecret;
   transports: string[];
+  /**
+   * Where the credential was created. Needed at login: a credential made on a
+   * phone must not send the browser hunting through the local provider first.
+   */
+  attachment?: AuthenticatorAttachment;
   createdAt: number;
   lastUsedAt: number | null;
   version: 1;
@@ -101,11 +106,6 @@ export async function savePasskey(record: PasskeyRecord): Promise<void> {
 
 export async function deletePasskey(walletName: string): Promise<void> {
   await tx('readwrite', (s) => s.delete(walletName));
-}
-
-export async function touchPasskey(walletName: string): Promise<void> {
-  const rec = await getPasskey(walletName);
-  if (rec) await savePasskey({ ...rec, lastUsedAt: Date.now() });
 }
 
 /**

@@ -145,6 +145,13 @@ export interface NewCredential {
    * initiated* action rather than chaining it automatically — see below.
    */
   prfSecret: ArrayBuffer | null;
+  /**
+   * What the credential was *actually* created on, which is not necessarily
+   * what was asked for: the browser's own dialog lets the user pick "save it
+   * another way" and send it to a phone. Recording the answer is what lets
+   * login aim at the right authenticator later.
+   */
+  attachment: AuthenticatorAttachment | null;
 }
 
 /**
@@ -247,7 +254,18 @@ export async function registerPasskey(
       ? (cred.response as AuthenticatorAttestationResponse).getTransports()
       : [];
 
-  return { credentialId, userId: toBase64(userId), transports, prfSecret };
+  return {
+    credentialId,
+    userId: toBase64(userId),
+    transports,
+    prfSecret,
+    // Typed as a plain string by the DOM lib; narrow to the two legal values.
+    attachment:
+      cred.authenticatorAttachment === 'platform' ||
+      cred.authenticatorAttachment === 'cross-platform'
+        ? cred.authenticatorAttachment
+        : (attachment ?? null),
+  };
 }
 
 /**
@@ -255,26 +273,66 @@ export async function registerPasskey(
  * verification, so this is also the "confirm it's really you" gate used before
  * revealing the seed phrase or password.
  */
+export interface AssertOptions {
+  /**
+   * Transports recorded at registration. Without them the browser has no idea
+   * where the credential lives and starts with the platform provider — which on
+   * some systems simply stalls, even when the credential is really on a phone.
+   */
+  transports?: string[];
+  /** Where the credential was created, used as a routing hint when transports are missing. */
+  attachment?: AuthenticatorAttachment;
+}
+
 export async function readPrfSecret(
   credentialId: string,
   salt: Uint8Array,
+  opts: AssertOptions = {},
 ): Promise<ArrayBuffer> {
+  const transports = opts.transports?.length
+    ? (opts.transports as AuthenticatorTransport[])
+    : undefined;
+
+  // `hints` is the coarser, newer signal; it covers providers that returned no
+  // transports at all, which is common enough to be worth the belt and braces.
+  const hints =
+    opts.attachment === 'cross-platform'
+      ? ['hybrid', 'security-key']
+      : opts.attachment === 'platform'
+        ? ['client-device']
+        : undefined;
+
   const publicKey: PublicKeyCredentialRequestOptions = {
     challenge: randomBytes(32) as BufferSource,
     rpId: window.location.hostname,
-    allowCredentials: [{ type: 'public-key', id: fromBase64(credentialId) as BufferSource }],
+    allowCredentials: [
+      {
+        type: 'public-key',
+        id: fromBase64(credentialId) as BufferSource,
+        ...(transports ? { transports } : {}),
+      },
+    ],
     userVerification: 'required',
     timeout: 120_000,
     extensions: prfExtension(salt),
+    ...(hints ? ({ hints } as object) : {}),
   };
 
   let assertion: PublicKeyCredential | null;
   try {
-    assertion = (await runCeremony('get', { publicKey }, (o) => navigator.credentials.get(o), {
-      rpId: publicKey.rpId,
-      credentialIdPrefix: credentialId.slice(0, 10),
-      userActivation: navigator.userActivation?.isActive ?? null,
-    })) as PublicKeyCredential | null;
+    assertion = (await runCeremony(
+      'get',
+      { publicKey },
+      (o) => navigator.credentials.get(o),
+      {
+        rpId: publicKey.rpId,
+        credentialIdPrefix: credentialId.slice(0, 10),
+        transports: transports ?? null,
+        hints: hints ?? null,
+        userActivation: navigator.userActivation?.isActive ?? null,
+      },
+      opts.attachment === 'cross-platform' ? ROAMING_TIMEOUT_MS : CEREMONY_TIMEOUT_MS,
+    )) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);
   }
