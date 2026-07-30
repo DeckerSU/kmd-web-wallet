@@ -103,8 +103,9 @@ does not travel, so a synced passkey would unlock nothing elsewhere. A useful
 side effect is that the authenticator stores nothing, so wallet names never
 appear in the OS passkey manager.
 
-**Google Password Manager on Linux does not work for this.** Measured with the
-bisect panel in the dev console (`?debug`), on Chrome 150 / X11:
+**Google Password Manager on Linux is unreliable here — but the cause is not
+settled.** Measured with the bisect panel in the dev console (`?debug`), on
+Chrome 150 / X11:
 
 | Request | Result |
 |---|---|
@@ -113,11 +114,17 @@ bisect panel in the dev console (`?debug`), on Chrome 150 / X11:
 | PRF, any `userVerification` | hangs |
 | PRF, `'required'`, `authenticatorAttachment: 'cross-platform'` | created in 22.7s, PRF secret returned |
 
-So the platform provider stalls on anything beyond the most minimal request,
-while a phone over hybrid or a security key handles the exact same options
-perfectly. The request is fine; that provider is not. When enrolment fails the
-UI therefore offers a phone or security key, and once that route works it is
-remembered for the browser, so nobody is walked into the same stall twice.
+That reads as "the platform provider stalls on anything non-trivial", and the
+same options succeed on a phone or security key — so the request itself is
+fine. But one manual observation contradicts the simple story: accepting the
+browser's default create dialog hangs, while choosing *"Save another way" and
+then picking Google Password Manager* — nominally the same destination —
+succeeds with the identical request. So what fails may be the route Chrome
+takes to the provider rather than the provider itself. None of the variants
+above pinned `authenticatorAttachment: 'platform'`, which is the closest
+programmatic equivalent of that manual choice; variants 8-10 in the panel cover
+it. Until that is resolved, a failed enrolment offers a phone or security key,
+and a route that works is remembered for the browser.
 
 **Routing the assertion.** `allowCredentials` carries the transports recorded at
 registration, plus a `hints` value derived from where the credential was

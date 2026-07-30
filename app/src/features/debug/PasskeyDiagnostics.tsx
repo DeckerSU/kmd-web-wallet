@@ -74,6 +74,39 @@ const VARIANTS: Variant[] = [
     opts: { withPrf: true, userVerification: 'preferred', residentKey: 'required' },
   },
   {
+    id: 'platform-pinned',
+    label: '8. PRF, UV required, pinned to this device',
+    hint: 'Never tested before. Pinning authenticatorAttachment: "platform" is the closest thing to picking the local manager by hand in the browser dialog — which is the step that made it work.',
+    opts: {
+      withPrf: true,
+      userVerification: 'required',
+      residentKey: 'discouraged',
+      attachment: 'platform',
+    },
+  },
+  {
+    id: 'platform-hint',
+    label: '9. PRF, UV required, hint: client-device',
+    hint: 'Same idea via the newer “hints” signal, which steers the chooser without constraining the authenticator.',
+    opts: {
+      withPrf: true,
+      userVerification: 'required',
+      residentKey: 'discouraged',
+      hints: ['client-device'],
+    },
+  },
+  {
+    id: 'platform-resident',
+    label: '10. PRF, UV required, pinned + discoverable',
+    hint: 'Google Password Manager only stores discoverable passkeys, so “discouraged” may be the contradiction. Pairs the pin with residentKey: required.',
+    opts: {
+      withPrf: true,
+      userVerification: 'required',
+      residentKey: 'required',
+      attachment: 'platform',
+    },
+  },
+  {
     id: 'cross-platform',
     label: '7. PRF, UV required, security key or phone',
     hint: 'Skips the platform provider entirely. If this succeeds, the fault is Google Password Manager, not the request. Expect a QR code or a security-key prompt.',

@@ -177,6 +177,12 @@ export interface RegisterOptions {
   attachment?: AuthenticatorAttachment;
   /** Diagnostics: shorten the ceiling so a sweep of hanging variants is bearable. */
   timeoutMs?: number;
+  /**
+   * `hints` steers which chooser the browser opens before any authenticator is
+   * involved. Worth varying, because the same provider reached by a different
+   * route can behave differently.
+   */
+  hints?: string[];
 }
 
 export async function registerPasskey(
@@ -213,6 +219,7 @@ export async function registerPasskey(
     timeout: 120_000,
     attestation: 'none',
     ...(withPrf ? { extensions: prfExtension(salt) } : {}),
+    ...(opts.hints ? ({ hints: opts.hints } as object) : {}),
   };
 
   let cred: PublicKeyCredential | null;
@@ -221,7 +228,14 @@ export async function registerPasskey(
       'create',
       { publicKey },
       (o) => navigator.credentials.create(o),
-      { rpId: publicKey.rp.id, residentKey, userVerification, withPrf, attachment },
+      {
+        rpId: publicKey.rp.id,
+        residentKey,
+        userVerification,
+        withPrf,
+        attachment: attachment ?? null,
+        hints: opts.hints ?? null,
+      },
       opts.timeoutMs ??
         (attachment === 'cross-platform' ? ROAMING_TIMEOUT_MS : CEREMONY_TIMEOUT_MS),
     )) as PublicKeyCredential | null;
