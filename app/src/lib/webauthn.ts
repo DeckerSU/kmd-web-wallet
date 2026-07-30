@@ -58,6 +58,7 @@ async function runCeremony<T>(
   options: CredentialRequestOptions | CredentialCreationOptions,
   invoke: (opts: never) => Promise<T>,
   describe: Record<string, unknown>,
+  timeoutMs: number = CEREMONY_TIMEOUT_MS,
 ): Promise<T> {
   const controller = new AbortController();
   logPasskey(`${what}: start`, describe);
@@ -68,7 +69,7 @@ async function runCeremony<T>(
     timedOut = true;
     logPasskey(`${what}: timeout, aborting`, { afterMs: Math.round(performance.now() - t0) });
     controller.abort();
-  }, CEREMONY_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const result = await invoke({ ...options, signal: controller.signal } as never);
@@ -80,7 +81,7 @@ async function runCeremony<T>(
     logPasskey(`${what}: rejected`, { afterMs: took, name, message: String(e) });
     if (timedOut) {
       throw new PasskeyError(
-        `${what} timed out after ${Math.round(CEREMONY_TIMEOUT_MS / 1000)}s — the passkey prompt never completed.`,
+        `${what} timed out after ${Math.round(timeoutMs / 1000)}s — the passkey prompt never completed.`,
       );
     }
     throw e;
@@ -160,6 +161,10 @@ export interface RegisterOptions {
   userVerification?: UserVerificationRequirement;
   /** Off only for diagnostics — a credential without PRF is useless to us. */
   withPrf?: boolean;
+  /** Diagnostics: force a roaming authenticator to bypass the platform one. */
+  attachment?: AuthenticatorAttachment;
+  /** Diagnostics: shorten the ceiling so a sweep of hanging variants is bearable. */
+  timeoutMs?: number;
 }
 
 export async function registerPasskey(
@@ -170,6 +175,7 @@ export async function registerPasskey(
   const residentKey = opts.residentKey ?? 'discouraged';
   const userVerification = opts.userVerification ?? 'required';
   const withPrf = opts.withPrf ?? true;
+  const attachment = opts.attachment;
 
   const userId = randomBytes(32);
   const publicKey: PublicKeyCredentialCreationOptions = {
@@ -190,6 +196,7 @@ export async function registerPasskey(
       residentKey,
       requireResidentKey: residentKey === 'required',
       userVerification,
+      ...(attachment ? { authenticatorAttachment: attachment } : {}),
     },
     timeout: 120_000,
     attestation: 'none',
@@ -198,12 +205,13 @@ export async function registerPasskey(
 
   let cred: PublicKeyCredential | null;
   try {
-    cred = (await runCeremony('create', { publicKey }, (o) => navigator.credentials.create(o), {
-      rpId: publicKey.rp.id,
-      residentKey,
-      userVerification,
-      withPrf,
-    })) as PublicKeyCredential | null;
+    cred = (await runCeremony(
+      'create',
+      { publicKey },
+      (o) => navigator.credentials.create(o),
+      { rpId: publicKey.rp.id, residentKey, userVerification, withPrf, attachment },
+      opts.timeoutMs,
+    )) as PublicKeyCredential | null;
   } catch (e) {
     normalize(e);
   }

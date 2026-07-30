@@ -6,7 +6,7 @@ import {
   logPasskey,
   logPasskeyCapabilities,
 } from '../../lib/passkeyLog';
-import { registerPasskey, type RegisterOptions } from '../../lib/webauthn';
+import { readPrfSecret, registerPasskey, type RegisterOptions } from '../../lib/webauthn';
 
 /**
  * Bisects which WebAuthn option a passkey provider chokes on.
@@ -25,30 +25,64 @@ interface Variant {
   opts: RegisterOptions;
 }
 
+/**
+ * Round two. The first sweep already showed that `userVerification: 'required'`
+ * is what hangs — variant 2 carried no PRF at all and still stalled — so these
+ * ask the follow-up question: can PRF work with a weaker UV setting, and is the
+ * platform authenticator specifically to blame?
+ *
+ * The timeout is short here on purpose: a hanging variant costs that much wall
+ * clock, and there are several.
+ */
+const DIAG_TIMEOUT_MS = 25_000;
+
 const VARIANTS: Variant[] = [
   {
     id: 'baseline',
-    label: '1. Plain credential (no PRF, no UV)',
-    hint: 'Does this provider create a credential at all? If this hangs, nothing else matters.',
+    label: '1. No PRF, UV discouraged',
+    hint: 'Known-good control. Confirms the provider still works at all.',
     opts: { withPrf: false, userVerification: 'discouraged', residentKey: 'discouraged' },
   },
   {
-    id: 'uv',
-    label: '2. + user verification required',
-    hint: 'Adds the PIN/biometric step. Isolates UV as the cause.',
+    id: 'uv-preferred',
+    label: '2. No PRF, UV preferred',
+    hint: '“Preferred” lets the provider skip verification instead of demanding it. If this works but 3 hangs, that word is the whole fix.',
+    opts: { withPrf: false, userVerification: 'preferred', residentKey: 'discouraged' },
+  },
+  {
+    id: 'uv-required',
+    label: '3. No PRF, UV required',
+    hint: 'The one that hung last time. Re-run to confirm it is reproducible.',
     opts: { withPrf: false, userVerification: 'required', residentKey: 'discouraged' },
   },
   {
-    id: 'prf',
-    label: '3. + PRF extension (what the wallet uses)',
-    hint: 'The current settings. If 2 works and this hangs, PRF is the problem.',
-    opts: { withPrf: true, userVerification: 'required', residentKey: 'discouraged' },
+    id: 'prf-uv-discouraged',
+    label: '4. PRF, UV discouraged',
+    hint: 'Does PRF come back at all without verification? hmac-secret often requires UV, so this may create a credential yet return no secret.',
+    opts: { withPrf: true, userVerification: 'discouraged', residentKey: 'discouraged' },
   },
   {
-    id: 'resident',
-    label: '4. PRF + discoverable credential',
-    hint: 'Some providers only handle discoverable credentials properly.',
-    opts: { withPrf: true, userVerification: 'required', residentKey: 'required' },
+    id: 'prf-uv-preferred',
+    label: '5. PRF, UV preferred',
+    hint: 'The likely landing spot: PRF kept, verification requested but not demanded.',
+    opts: { withPrf: true, userVerification: 'preferred', residentKey: 'discouraged' },
+  },
+  {
+    id: 'prf-resident-preferred',
+    label: '6. PRF, UV preferred, discoverable',
+    hint: 'Google Password Manager prefers discoverable credentials; this pairs that with the softer UV.',
+    opts: { withPrf: true, userVerification: 'preferred', residentKey: 'required' },
+  },
+  {
+    id: 'cross-platform',
+    label: '7. PRF, UV required, security key or phone',
+    hint: 'Skips the platform provider entirely. If this succeeds, the fault is Google Password Manager, not the request. Expect a QR code or a security-key prompt.',
+    opts: {
+      withPrf: true,
+      userVerification: 'required',
+      residentKey: 'discouraged',
+      attachment: 'cross-platform',
+    },
   },
 ];
 
@@ -69,17 +103,31 @@ export default function PasskeyDiagnostics() {
     const t0 = performance.now();
     try {
       logPasskey(`diagnostic ${v.id}: begin`, v.opts);
-      const cred = await registerPasskey(`diagnostic-${v.id}`, randomBytes(32), v.opts);
-      const ms = Math.round(performance.now() - t0);
+      const salt = randomBytes(32);
+      const cred = await registerPasskey(`diagnostic-${v.id}`, salt, {
+        ...v.opts,
+        timeoutMs: DIAG_TIMEOUT_MS,
+      });
+
+      // A credential is only half the answer: what matters is whether a PRF
+      // secret can actually be obtained, which for many providers only happens
+      // on a later assertion. Try that too, from this same click.
+      let detail: string;
+      if (cred.prfSecret) {
+        detail = 'created — PRF secret returned at create ✓';
+      } else if (!v.opts.withPrf) {
+        detail = 'created (PRF was not requested)';
+      } else {
+        try {
+          await readPrfSecret(cred.credentialId, salt);
+          detail = 'created — PRF secret returned on the follow-up assertion ✓';
+        } catch (e) {
+          detail = `created, but no PRF secret: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
       setResults((r) => ({
         ...r,
-        [v.id]: {
-          state: 'ok',
-          ms,
-          detail: cred.prfSecret
-            ? 'created, PRF secret returned at create'
-            : 'created, but no PRF secret at create',
-        },
+        [v.id]: { state: 'ok', ms: Math.round(performance.now() - t0), detail },
       }));
     } catch (e) {
       setResults((r) => ({
@@ -101,8 +149,9 @@ export default function PasskeyDiagnostics() {
       <h2 className="mb-1 text-sm font-semibold text-zinc-200">Passkey diagnostics</h2>
       <p className="mb-4 text-xs text-zinc-500">
         Run these in order. Each opens a real passkey prompt, so expect a PIN or biometric
-        request every time. A test credential is created in your password manager — delete
-        them there afterwards.
+        request every time; a hanging variant costs {DIAG_TIMEOUT_MS / 1000}s before it gives
+        up. Test credentials named <code className="text-zinc-400">diagnostic-*</code> are
+        created in your password manager — delete them there afterwards.
       </p>
 
       <div className="space-y-2">
