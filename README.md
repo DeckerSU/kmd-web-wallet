@@ -87,85 +87,145 @@ sure your hosting serves it compressed and with long-lived cache headers.
 ### Passkey login
 
 A wallet can be unlocked with a passkey instead of a typed password. KDF still
-needs a password, so one is generated at creation, shown to the user once, and
+requires a password, so one is generated at creation, shown to the user once, and
 kept encrypted in IndexedDB under a key only the authenticator can reproduce.
 
 The key comes from the **WebAuthn PRF extension**: for a given (credential, salt)
 pair the authenticator returns a stable 32-byte secret, which is run through
-HKDF-SHA256 and used as an AES-GCM key (`src/lib/keywrap.ts`). Nothing weaker is
-accepted — if the authenticator will not do PRF, registration fails instead of
-silently storing a password that anything could read.
+HKDF-SHA256 into an AES-GCM key (`src/lib/keywrap.ts`). Nothing weaker is
+accepted — an authenticator that will not do PRF fails registration rather than
+leaving a password anything could read.
 
-One credential is registered per wallet and replayed via `allowCredentials`.
-They are **discoverable** (`residentKey: 'required'`) — not the privacy-preferred
-choice, since a discoverable credential means the authenticator stores the wallet
-name and it becomes visible in the OS passkey manager. Android forces the issue:
-Google Password Manager there returns no PRF secret whatsoever for a
-non-discoverable credential, creating one and then reporting `prf` absent, which
-would leave a passkey unable to unlock anything.
+Getting this working across platforms took considerably more than the spec
+suggests. The configuration below is the one that survived; everything after it
+is why the obvious alternatives did not.
 
-These credentials sync through the passkey provider while the KDF wallet does
-not, so a passkey may appear on a device that has no matching wallet. That is
-inert: login replays a credential id from the local record and never enumerates.
+#### The configuration that works
 
-**Always name an authenticator.** This turned out to matter more than anything
-else in the request. Measured with the bisect panel in the dev console
-(`?debug`), on Chrome 150 / X11 with Google Password Manager:
+```ts
+// registration — src/lib/webauthn.ts
+{
+  authenticatorSelection: {
+    authenticatorAttachment: 'platform',   // or 'cross-platform'; never omitted
+    residentKey: 'required',               // discoverable
+    requireResidentKey: true,
+    userVerification: 'required',
+  },
+  pubKeyCredParams: [{ alg: -7 }, { alg: -257 }],
+  attestation: 'none',
+  extensions: { prf: { eval: { first: salt } } },
+}
 
-| Request | Result |
-|---|---|
-| PRF, `userVerification: 'required'`, attachment **unset** | hangs indefinitely |
-| same, plus `hints: ['client-device']` | hangs |
-| same, `authenticatorAttachment: 'platform'` | created in 4.4s, PRF secret returned |
-| same, `'platform'` + `residentKey: 'required'` | created in 4.4s |
-| **Android**, `'platform'`, `residentKey: 'discouraged'` | created, but **no PRF at all** |
-| **Android**, `'platform'`, `residentKey: 'required'` | created in 2.3s, PRF secret returned |
-| same, `'cross-platform'` (phone or security key) | created in 16.4s |
+// login — the credential id alone is not enough to find it again
+{
+  allowCredentials: [{ type: 'public-key', id, transports }],  // transports from registration
+  hints,                                  // from the recorded attachment
+  userVerification: 'required',
+  extensions: { prf: { eval: { first: salt } } },
+}
+```
 
-Leaving the attachment unset sends Chrome into its generic create dialog, whose
-path to Google Password Manager never resolves; naming `'platform'` reaches the
-*same* provider directly and finishes in seconds. The manual equivalent is
-striking — accepting the default dialog hangs, while choosing "Save another way"
-and then picking Google Password Manager succeeds with an identical request.
+`authenticatorAttachment` is chosen as `'platform'` when a user-verifying local
+authenticator exists and `'cross-platform'` otherwise; a failed attempt offers
+the other route and whichever works is remembered per browser.
 
-On Linux neither PRF, user verification nor `residentKey` is implicated once an
-attachment is named. Android narrows it further: only a discoverable credential
-yields a PRF secret there, so that combination — attachment named,
-`residentKey: 'required'` — is the one that works everywhere and the one shipped.
-`hints` is not a substitute for naming the attachment. Registration therefore always names one — `'platform'` when
-a local authenticator is available, otherwise `'cross-platform'` — and a failed
-attempt offers the other route, remembering whichever worked.
+**What this gives up.** Discoverable credentials mean the authenticator stores
+the wallet name, so it appears in the OS passkey manager — non-discoverable was
+the original choice precisely to avoid that. They also sync through the passkey
+provider while the KDF wallet does not, so a passkey can surface on a device with
+no matching wallet. The second is inert (login replays a credential id from the
+local record and never enumerates); the first is a real trade, accepted because a
+passkey that cannot produce a key is worth less than a private one.
 
-**Routing the assertion.** `allowCredentials` carries the transports recorded at
-registration, plus a `hints` value derived from where the credential was
-actually created — read from `authenticatorAttachment` on the response, not from
-what was requested, since the browser's own dialog lets the user redirect a
-passkey to their phone. Without those signals the browser has no idea where to
-look and starts with the local provider, which is exactly the one that stalls:
-a passkey created on a phone would then be unusable for login.
+#### Problems hit, and what each turned out to be
 
-**Two-phase enrolment.** Providers disagree on when they release the PRF secret:
-some return it from `create()`, others only from a later assertion. That second
-ceremony is never chained automatically — Google Password Manager on Linux
-accepts the PIN, closes its dialog, and then leaves a gesture-less `get()`
-pending forever, which shows up as a wallet creation that silently never
-finishes. Instead the UI asks the user to confirm once more, so the assertion
-runs behind a real click. Every ceremony also has a hard timeout, since
-WebAuthn's own `timeout` is only a hint the platform may ignore.
+**1. `create()` hangs forever with no error.** On Linux the PIN dialog spins
+after the user answers and the promise never settles. The cause was the *absence*
+of `authenticatorAttachment`: unset, Chrome opens a generic create dialog whose
+route to Google Password Manager never resolves. Naming `'platform'` reaches the
+identical provider in ~4s. The manual tell is stark — accepting the default
+dialog hangs, while "Save another way" → Google Password Manager succeeds with a
+byte-identical request. `hints: ['client-device']` is *not* a substitute.
 
-**What this does and does not protect.** The relying party is the page itself —
-there is no server to verify an assertion against, so this is not protection
-against a forged login. What it gives is protection at rest: a copy of the
-browser profile yields only ciphertext, useless without the authenticator. A
-compromised page (XSS, a tampered build) is not defended against by any
-client-side scheme, this one included.
+**2. Android creates a credential with no PRF at all.** Not `enabled: false` —
+the `prf` key is simply absent, and a follow-up assertion is empty too, so the
+result is a passkey that can never unlock anything. Google Password Manager binds
+hmac-secret to discoverable credentials, so `residentKey: 'required'` is
+mandatory there. Linux tolerates either, which is why this only appeared once
+Android was tested.
+
+**3. A passkey created on a phone could not be used to log in.** Registration
+succeeded, then unlocking prompted the *local* password manager, which does not
+hold the credential. `allowCredentials` was being sent with the credential id and
+nothing else, so the browser had no idea where to look. Transports were recorded
+at registration and never used. Both they and a `hints` value are now sent — and
+crucially the attachment is read from `authenticatorAttachment` on the creation
+*response*, not from what was requested, because the browser's own dialog lets a
+user redirect the credential to their phone regardless of the request.
+
+**4. The PRF secret is not always returned by `create()`.** Some providers
+release it only on a later assertion. Chaining that assertion automatically
+leaves it pending forever on some providers, so enrolment is two-phase: when the
+secret is withheld, the UI asks the user to confirm once more and the assertion
+runs behind a real click.
+
+**5. `prf.enabled` has three states, not two.** `false` means unsupported, but
+`undefined` — no `prf` key at all — means unknown, and treating it as success
+walked straight into the hang in (4). Unknown now means "ask again".
+
+**6. WebAuthn's `timeout` is a hint the platform may ignore.** Ceremonies get a
+hard ceiling (60s local, 150s roaming, where scanning a QR legitimately takes
+time). Rejecting our own promise is not enough on its own: the provider's dialog
+keeps spinning because the ceremony is still running, so the timeout also aborts
+via `AbortController`.
+
+**7. The virtual authenticator hid half of this.** Chrome's CDP virtual
+authenticator always returns the PRF secret from `create()`, so the entire
+second-ceremony path was never exercised by the test suite despite everything
+passing. Provider behaviour now has to be emulated deliberately — stripped `prf`
+results, gesture-less assertions that never settle — to cover it.
+
+**Diagnoses that looked right and were not:** that the chained assertion was to
+blame (it hangs, but was not the reported failure); that
+`userVerification: 'required'` was the trigger (a variant with verification
+discouraged hung too); and that Google Password Manager on Linux is simply broken
+(it works fine when addressed directly). Each was disproved by the next
+measurement — which is what the bisect panel in the dev console (`?debug`) exists
+for. It walks one option at a time and prints a copyable trace; `src/lib/passkeyLog.ts`
+records no secrets, only what was asked and what came back.
+
+#### Measurements
+
+Chrome 150, Google Password Manager, `userVerification: 'required'`, PRF requested:
+
+| Platform | attachment | residentKey | Result |
+|---|---|---|---|
+| Linux/X11 | *unset* | discouraged | hangs indefinitely |
+| Linux/X11 | *unset* + `hints: ['client-device']` | discouraged | hangs |
+| Linux/X11 | `platform` | discouraged | created 4.4s, PRF returned |
+| Linux/X11 | `platform` | **required** | created 4.4s, PRF returned |
+| Linux/X11 | `cross-platform` | discouraged | created 16.4s, PRF returned |
+| Android | `platform` | discouraged | created 1.1s, **no PRF** |
+| Android | *unset* + `hints` | discouraged | created 2.7s, **no PRF** |
+| Android | `platform` | **required** | created 2.3s, PRF returned |
+
+The intersection — attachment named, `residentKey: 'required'` — is what ships.
+
+#### Security properties
+
+The relying party is the page itself. There is no server to verify an assertion
+against, so this is **not** protection against a forged login. What it gives is
+protection at rest: a copy of the browser profile yields only ciphertext, useless
+without the authenticator. A compromised page (XSS, a tampered build) is not
+defended against by any client-side scheme, this one included.
 
 **Recovery.** The generated password is not a convenience, it is the second key.
-Lose the authenticator and the ciphertext can never be opened again, so the
-creation flow makes the user acknowledge having saved it, and Settings can show
-it again behind the same passkey prompt. Failing both, the seed phrase still
-restores the wallet from scratch. Password login therefore always remains
-available.
+Lose the authenticator and the ciphertext can never be opened again, so creation
+makes the user acknowledge having saved it and Settings can show it again behind
+the same passkey prompt. Failing both, the seed phrase still restores the wallet
+from scratch. Password login therefore always remains available, and enrolment
+verifies the wrap round-trips before persisting, so a record that cannot be
+opened later is never written.
 
 ### Versioning
 
