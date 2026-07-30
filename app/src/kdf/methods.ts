@@ -1,5 +1,5 @@
 import { kdf } from './client';
-import type { ElectrumServer } from '../config/coins';
+import { coinByTicker, type ElectrumServer, type EvmNode } from '../config/coins';
 
 /** Typed wrappers for the KDF RPC methods the app uses. */
 
@@ -135,6 +135,90 @@ export function enableZCoinStatus(
   });
 }
 
+// --- EVM (ETH protocol) activation ------------------------------------------
+
+/**
+ * Per-address entry of the iguana `enable_eth_with_tokens` result. KDF's
+ * IguanaEthWithTokensActivationResult keys these by address string.
+ */
+interface EthAddressInfo {
+  derivation_method?: { type: string };
+  pubkey?: string;
+  balances?: BalanceInfo;
+}
+
+/**
+ * Raw `enable_eth_with_tokens` result. Iguana mode returns the legacy
+ * `eth_addresses_infos` map; HD mode returns a `wallet_balance` report. Only
+ * iguana is used here, but both are tolerated so a KDF upgrade that switches
+ * shapes does not break activation.
+ */
+interface EthWithTokensActivationResult {
+  current_block: number;
+  eth_addresses_infos?: Record<string, EthAddressInfo>;
+  erc20_addresses_infos?: Record<string, unknown>;
+  wallet_balance?: {
+    wallet_type: string;
+    accounts?: {
+      addresses?: { address: string; balance: Record<string, BalanceInfo> }[];
+    }[];
+  };
+}
+
+/** What the store needs out of an EVM activation. */
+export interface EvmActivationResult {
+  currentBlock: number;
+  address: string;
+  balance: BalanceInfo;
+}
+
+const ZERO_BALANCE: BalanceInfo = { spendable: '0', unspendable: '0' };
+
+function firstEvmAddress(
+  ticker: string,
+  res: EthWithTokensActivationResult,
+): { address: string; balance: BalanceInfo } {
+  const iguana = Object.entries(res.eth_addresses_infos ?? {})[0];
+  if (iguana) {
+    return { address: iguana[0], balance: iguana[1].balances ?? ZERO_BALANCE };
+  }
+  const hd = res.wallet_balance?.accounts?.[0]?.addresses?.[0];
+  if (hd) {
+    return { address: hd.address, balance: hd.balance[ticker] ?? ZERO_BALANCE };
+  }
+  throw new Error(`${ticker}: activation returned no address`);
+}
+
+/**
+ * Activate an EVM platform coin. Unlike UTXO and ZHTLC this is a single
+ * synchronous RPC — there is no task to poll, so activation is instant.
+ *
+ * `tx_history` is not requested: KDF's ETH history loop is a no-op under WASM,
+ * so it would only burn RPC calls. History is fetched from the chain explorer.
+ */
+export async function enableEthWithTokens(
+  ticker: string,
+  nodes: EvmNode[],
+  swapContractAddress?: string,
+  fallbackSwapContract?: string,
+): Promise<EvmActivationResult> {
+  const res = await kdf.rpc2<EthWithTokensActivationResult>('enable_eth_with_tokens', {
+    ticker,
+    nodes,
+    ...(swapContractAddress ? { swap_contract_address: swapContractAddress } : {}),
+    ...(fallbackSwapContract ? { fallback_swap_contract: fallbackSwapContract } : {}),
+    erc20_tokens_requests: [],
+    tx_history: false,
+    get_balances: true,
+    // ETH uses its own EthPrivKeyActivationPolicy, an *adjacently* tagged enum
+    // (`#[serde(tag = "type", content = "params")]`) — unlike the plain string
+    // the UTXO/ZHTLC activations take, and unlike what the API docs show.
+    priv_key_policy: { type: 'ContextPrivKey' },
+  });
+  const { address, balance } = firstEvmAddress(ticker, res);
+  return { currentBlock: res.current_block, address, balance };
+}
+
 export interface MyBalanceResult {
   coin: string;
   address: string;
@@ -156,10 +240,34 @@ export function disableCoin(coin: string): Promise<unknown> {
   return kdf.rpc({ method: 'disable_coin', coin });
 }
 
-export interface FeeDetails {
-  type: string;
+/**
+ * KDF's TxFeeDetails is a `type`-tagged union whose payload differs per
+ * protocol: UTXO/ZHTLC carry a flat `amount`, while EVM (EthTxFeeDetails)
+ * carries gas fields and reports the paid fee as `total_fee`.
+ */
+export interface UtxoFeeDetails {
+  type: 'Utxo' | string;
   coin?: string;
   amount: string;
+}
+
+export interface EthFeeDetails {
+  type: 'Eth';
+  coin: string;
+  gas: number;
+  gas_price: string;
+  max_fee_per_gas?: string;
+  max_priority_fee_per_gas?: string;
+  total_fee: string;
+}
+
+export type FeeDetails = UtxoFeeDetails | EthFeeDetails;
+
+/** The fee actually paid, whichever protocol shape `fee` uses. */
+export function feeAmount(fee: FeeDetails | undefined): string {
+  if (!fee) return '0';
+  if ('total_fee' in fee) return fee.total_fee;
+  return fee.amount ?? '0';
 }
 
 /** Subset of KDF TransactionDetails the app uses. */
@@ -227,14 +335,23 @@ export function taskWithdrawStatus(
   });
 }
 
-/** Broadcast a signed transaction; returns the txid. */
+/**
+ * Broadcast a signed transaction; returns the txid.
+ *
+ * EVM hashes come back bare here, without the `0x` — KDF's `send_raw_tx` does
+ * `format!("{res:02x}")` and carries a standing TODO about it, while the same
+ * hash in `TransactionDetails.tx_hash` (and from the explorer) *is* prefixed.
+ * Normalizing at this boundary keeps the txid the app shows and links to
+ * identical to the one history will report. UTXO txids are left untouched.
+ */
 export async function sendRawTransaction(coin: string, txHex: string): Promise<string> {
   const res = await kdf.rpc<{ tx_hash: string }>({
     method: 'send_raw_transaction',
     coin,
     tx_hex: txHex,
   });
-  return res.tx_hash;
+  const isEvm = coinByTicker(coin)?.kind === 'evm';
+  return isEvm && !res.tx_hash.startsWith('0x') ? `0x${res.tx_hash}` : res.tx_hash;
 }
 
 export async function validateAddress(coin: string, address: string): Promise<{
@@ -247,6 +364,32 @@ export async function validateAddress(coin: string, address: string): Promise<{
     address,
   });
   return res.result;
+}
+
+/**
+ * Re-case an EVM address to its EIP-55 mixed-case checksum form.
+ *
+ * KDF validates EVM addresses strictly: both `validateaddress` and `withdraw`
+ * run the input through `valid_addr_from_str`/`address_from_str`, which reject
+ * anything whose casing doesn't match its checksum — so an all-lowercase
+ * address (what many explorers and tools emit, and perfectly legal under
+ * EIP-55, which makes the checksum optional) would be refused.
+ *
+ * `convertaddress` is the escape hatch: its ETH branch parses with
+ * `addr_from_str`, which does *not* verify the checksum, then re-emits the
+ * address via `checksum_address`. So this canonicalizes any casing.
+ */
+export async function toChecksumAddress(coin: string, address: string): Promise<string> {
+  // `addr_from_str` matches the prefix literally, so a `0X…` paste would fail
+  // with a confusing "must be prefixed with 0x".
+  const from = address.replace(/^0X/, '0x');
+  const res = await kdf.rpc<{ result: { address: string } }>({
+    method: 'convertaddress',
+    coin,
+    from,
+    to_address_format: { format: 'mixedcase' },
+  });
+  return res.result.address;
 }
 
 export interface TxHistoryResult {

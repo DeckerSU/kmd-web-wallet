@@ -2,15 +2,17 @@ import { useState } from 'react';
 import { Alert, Button, Modal, Spinner, TextField } from '../../components/ui';
 import { coinByTicker } from '../../config/coins';
 import {
+  feeAmount,
   sendRawTransaction,
   taskWithdrawInit,
   taskWithdrawStatus,
+  toChecksumAddress,
   validateAddress,
   withdraw,
   type TransactionDetails,
   type WithdrawAmount,
 } from '../../kdf/methods';
-import { formatAmount } from '../../lib/format';
+import { formatAmount, subtractAmounts } from '../../lib/format';
 import { usePortfolioStore } from '../../store/portfolio';
 
 type Step =
@@ -53,7 +55,10 @@ export default function SendModal(props: {
 }) {
   const { ticker, spendable } = props;
   const refreshBalances = usePortfolioStore((s) => s.refreshBalances);
-  const isZhtlc = coinByTicker(ticker)?.kind === 'zhtlc';
+  const coin = coinByTicker(ticker);
+  const isZhtlc = coin?.kind === 'zhtlc';
+  const isEvm = coin?.kind === 'evm';
+  const decimals = coin?.decimals ?? 8;
 
   const [step, setStep] = useState<Step>({ name: 'form' });
   const [to, setTo] = useState('');
@@ -67,7 +72,13 @@ export default function SendModal(props: {
     setBusy(true);
     setError(null);
     try {
-      const addr = to.trim();
+      let addr = to.trim();
+      // KDF rejects EVM addresses whose casing doesn't match their EIP-55
+      // checksum, so normalize first — otherwise a pasted all-lowercase
+      // address (legal, and what most explorers copy) would be refused.
+      if (isEvm) {
+        addr = await toChecksumAddress(ticker, addr).catch(() => addr);
+      }
       const validation = await validateAddress(ticker, addr);
       if (!validation.is_valid) {
         throw new Error(validation.reason ?? 'Invalid address');
@@ -101,8 +112,10 @@ export default function SendModal(props: {
     }
   };
 
-  const amountValid = isMax || /^\d+(\.\d{1,8})?$/.test(amount.trim());
-  const explorerTxUrl = coinByTicker(ticker)?.explorerTxUrl;
+  const amountValid =
+    isMax || new RegExp(`^\\d+(\\.\\d{1,${decimals}})?$`).test(amount.trim());
+  const explorerTxUrl = coin?.explorerTxUrl;
+  const fee = feeAmount(step.name === 'confirm' ? step.tx.fee_details : undefined);
 
   return (
     <Modal title={`Send ${ticker}`} onClose={props.onClose}>
@@ -112,7 +125,7 @@ export default function SendModal(props: {
             label="Recipient address"
             value={to}
             onChange={setTo}
-            placeholder={isZhtlc ? 'zs…' : 'R…'}
+            placeholder={isZhtlc ? 'zs…' : isEvm ? '0x…' : 'R…'}
             autoFocus
           />
           <div>
@@ -137,7 +150,7 @@ export default function SendModal(props: {
               </Button>
             </div>
             <p className="mt-1 text-xs text-zinc-500">
-              Available: {formatAmount(spendable)} {ticker}
+              Available: {formatAmount(spendable, decimals)} {ticker}
             </p>
           </div>
           {isZhtlc && (
@@ -170,17 +183,15 @@ export default function SendModal(props: {
             label="Amount"
             value={`${formatAmount(
               step.isMax
-                ? (Number(step.tx.spent_by_me) - Number(step.tx.fee_details.amount)).toFixed(8)
+                ? subtractAmounts(step.tx.spent_by_me, fee, decimals)
                 : amount.trim(),
+              decimals,
             )} ${ticker}`}
           />
-          <SummaryRow
-            label="Network fee"
-            value={`${formatAmount(step.tx.fee_details.amount)} ${ticker}`}
-          />
+          <SummaryRow label="Network fee" value={`${formatAmount(fee, decimals)} ${ticker}`} />
           <SummaryRow
             label="Balance change"
-            value={`${formatAmount(step.tx.my_balance_change)} ${ticker}`}
+            value={`${formatAmount(step.tx.my_balance_change, decimals)} ${ticker}`}
           />
           {step.tx.kmd_rewards && Number(step.tx.kmd_rewards.amount) > 0 && (
             <Alert kind="info">

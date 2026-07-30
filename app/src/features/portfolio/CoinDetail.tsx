@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BackLink, Button, Card } from '../../components/ui';
+import { coinByTicker } from '../../config/coins';
 import { formatAmount } from '../../lib/format';
 import type { CoinState } from '../../store/portfolio';
 import TxHistoryList from '../history/TxHistoryList';
@@ -12,6 +13,7 @@ export default function CoinDetail(props: { coin: CoinState; onBack: () => void 
   const { coin } = props;
   const [modal, setModal] = useState<'send' | 'receive' | null>(null);
   const [copied, setCopied] = useState(false);
+  const decimals = coinByTicker(coin.ticker)?.decimals ?? 8;
 
   const copyAddress = () => {
     if (!coin.address) return;
@@ -35,7 +37,7 @@ export default function CoinDetail(props: { coin: CoinState; onBack: () => void 
           </p>
           {coin.balance && Number(coin.balance.unspendable) > 0 && (
             <p className="text-xs text-zinc-500">
-              + {formatAmount(coin.balance.unspendable)} unspendable
+              + {formatAmount(coin.balance.unspendable, decimals)} unspendable
             </p>
           )}
           {coin.address && (
