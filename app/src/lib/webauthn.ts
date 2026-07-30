@@ -125,10 +125,15 @@ export async function hasPlatformAuthenticator(): Promise<boolean> {
 }
 
 /**
- * Whether the browser advertises the PRF extension. This is a browser-level
- * capability check; whether the *authenticator* the user picks actually honours
- * PRF is only known after a ceremony, which is why registration verifies the
- * secret really came back before storing anything.
+ * Whether PRF is worth attempting. Three-state, not boolean: only an explicit
+ * `false` counts as a refusal.
+ *
+ * Not every browser enumerates extensions here. Safari answers
+ * `getClientCapabilities()` with a short list carrying no `extension:*` keys at
+ * all, yet performs PRF perfectly — so reading a missing key as "unsupported"
+ * hides the whole feature from a browser that supports it. Being optimistic is
+ * safe because the ceremony is the real test: registration refuses to persist
+ * anything unless a secret actually came back and the wrap round-trips.
  */
 export async function isPrfLikelyAvailable(): Promise<boolean> {
   if (!isPasskeySupported()) return false;
@@ -138,10 +143,9 @@ export async function isPrfLikelyAvailable(): Promise<boolean> {
         getClientCapabilities?: () => Promise<Record<string, boolean>>;
       }
     ).getClientCapabilities?.();
-    // Older browsers have no capability API; assume PRF may work and let the
-    // ceremony be the judge.
-    if (!caps) return true;
-    return caps['extension:prf'] === true;
+    const prf = caps?.['extension:prf'];
+    logPasskey('prf capability', { reported: prf ?? null, decision: prf !== false });
+    return prf !== false;
   } catch {
     return true;
   }

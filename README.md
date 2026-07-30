@@ -179,7 +179,15 @@ time). Rejecting our own promise is not enough on its own: the provider's dialog
 keeps spinning because the ceremony is still running, so the timeout also aborts
 via `AbortController`.
 
-**7. The virtual authenticator hid half of this.** Chrome's CDP virtual
+**7. Capability detection hid the feature from a browser that supports it.**
+Safari answers `getClientCapabilities()` with a short list carrying no
+`extension:*` keys at all, yet performs PRF perfectly. Reading a missing key as
+"unsupported" meant the passkey option never appeared there — the same
+three-state mistake as (5), made twice in different places. Only an explicit
+`false` counts as a refusal now; unknown is optimistic, which is safe because
+registration refuses to persist anything unless a secret actually came back.
+
+**8. The virtual authenticator hid half of this.** Chrome's CDP virtual
 authenticator always returns the PRF secret from `create()`, so the entire
 second-ceremony path was never exercised by the test suite despite everything
 passing. Provider behaviour now has to be emulated deliberately — stripped `prf`
@@ -208,8 +216,14 @@ Chrome 150, Google Password Manager, `userVerification: 'required'`, PRF request
 | Android | `platform` | discouraged | created 1.1s, **no PRF** |
 | Android | *unset* + `hints` | discouraged | created 2.7s, **no PRF** |
 | Android | `platform` | **required** | created 2.3s, PRF returned |
+| macOS/Safari 26.5 | `platform` | **required** | created 5.1s, PRF returned |
+| macOS/Safari 26.5 | `platform` | discouraged | created 5.2s, PRF returned |
+| macOS/Safari 26.5 | *unset* + `hints` | discouraged | created 4.4s, PRF returned |
 
 The intersection — attachment named, `residentKey: 'required'` — is what ships.
+Safari is the easy case: every variant works there, including the ones that hang
+on Chrome/Linux, so it says nothing about which to pick and everything about
+Chrome's dialog being the outlier.
 
 #### Security properties
 
