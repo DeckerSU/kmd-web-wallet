@@ -64,6 +64,11 @@ export interface KdfStartupConf {
   rpc_password: string;
   coins: unknown[];
   seednodes?: string[];
+  /**
+   * Skip joining the P2P network. Mutually exclusive with `seednodes` — KDF's
+   * precheck rejects a config carrying both.
+   */
+  disable_p2p?: boolean;
   wallet_name?: string;
   wallet_password?: string;
   /** Seed phrase — pass only on wallet registration/import. */

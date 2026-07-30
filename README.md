@@ -296,8 +296,16 @@ call the `version` RPC, and watch live KDF logs.
 
 Defined in `app/src/config/`:
 
-- **netid:** `6133`; P2P seed nodes (`seed01/seed03.kmdefi.net`, `kdfseed1.decker.im`,
-  `staking1/staking2.gleec.com`) are dialed over WSS on port 32336.
+- **P2P is off** (`disable_p2p: true`, `KDF_ENABLE_P2P` in `src/config/constants.ts`).
+  Nothing the wallet does needs it — activation, balances, history and withdrawals
+  all talk to Electrum servers or JSON-RPC nodes directly. P2P serves swaps, the
+  orderbook and peer health checks, none of which exist yet, and leaving it on
+  costs a permanent WSS connection per seed node and puts an unreachable seed node
+  on the startup path. Turning it back on also restores `seednodes`: KDF's precheck
+  rejects a config carrying both (*"Cannot disable P2P while seed nodes are
+  configured"*), so the two move together.
+- **netid:** `6133`; the seed nodes used when P2P is enabled (`seed01/seed03.kmdefi.net`,
+  `kdfseed1.decker.im`, `staking1/staking2.gleec.com`) are dialed over WSS on port 32336.
 - **Electrum servers** (WSS only — plain TCP/SSL sockets are not available to browser
   code): `kmd.electrum{1,2}.cipig.net:30001` for KMD,
   `electrum.kmdclassic.com:50004` for KMDCL,
