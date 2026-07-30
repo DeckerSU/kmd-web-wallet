@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import PasskeyDiagnostics from './PasskeyDiagnostics';
 import { generateRpcPassword, kdf } from '../../kdf/client';
 import { buildStartupConf } from '../../kdf/conf';
 import { MainStatus, startupResultName } from '../../kdf/types';
@@ -147,6 +148,10 @@ export default function DevConsole() {
               <span className="text-zinc-200">{entry.line}</span>
             </div>
           ))}
+        </div>
+
+        <div className="mt-6">
+          <PasskeyDiagnostics />
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { formatAmount, shortenAddress } from '../../lib/format';
 import { useAuthStore } from '../../store/auth';
 import { usePortfolioStore, type CoinState } from '../../store/portfolio';
 import AboutModal from '../about/AboutModal';
+import GeneratedPasswordModal from '../auth/GeneratedPasswordModal';
 import SettingsModal from '../settings/SettingsModal';
 import CoinDetail from './CoinDetail';
 import { COIN_ICONS, COIN_LABELS } from './coinVisuals';
@@ -51,6 +52,7 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <GeneratedPasswordModal />
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
