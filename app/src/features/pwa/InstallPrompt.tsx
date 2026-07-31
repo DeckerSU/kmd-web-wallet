@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/ui';
-import { isStandalone, onInstallAvailability, promptInstall } from '../../lib/pwa';
+import {
+  isStandalone,
+  manualInstallPlatform,
+  onInstallAvailability,
+  promptInstall,
+} from '../../lib/pwa';
 
 /**
  * Offer to install the wallet as an app.
@@ -9,11 +14,21 @@ import { isStandalone, onInstallAvailability, promptInstall } from '../../lib/pw
  * declined for good: a wallet that nags on every visit is worse than one that
  * never asks. The dismissal is remembered locally and only reset by clearing
  * site data — which also clears the wallets, so the two go together anyway.
+ *
+ * Two shapes, because two kinds of browser. Chromium fires `beforeinstallprompt`
+ * and installs on a click. Safari fires nothing and exposes no install API, on
+ * any OS, so there the bar can only tell the user how to do it by hand.
  */
 const DISMISSED_KEY = 'kdf.installPromptDismissed';
 
+const MANUAL_COPY = {
+  ios: 'Tap the Share button, then choose “Add to Home Screen”.',
+  macos: 'Open the File menu (or Share), then choose “Add to Dock”.',
+} as const;
+
 export default function InstallPrompt() {
   const [available, setAvailable] = useState(false);
+  const manual = useMemo(() => manualInstallPlatform(), []);
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem(DISMISSED_KEY) === '1';
@@ -24,9 +39,10 @@ export default function InstallPrompt() {
 
   useEffect(() => onInstallAvailability(setAvailable), []);
 
-  // Nothing to offer when the browser has not qualified the app, when the offer
-  // was declined, or when this *is* the installed app.
-  if (!available || dismissed || isStandalone()) return null;
+  // Nothing to offer when neither the browser has qualified the app (Chromium)
+  // nor Safari needs the how-to, when the offer was declined, or when this *is*
+  // the installed app.
+  if ((!available && !manual) || dismissed || isStandalone()) return null;
 
   const dismiss = () => {
     setDismissed(true);
@@ -44,18 +60,22 @@ export default function InstallPrompt() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-zinc-100">Install KMD Wallet</p>
           <p className="truncate text-xs text-zinc-500">
-            Add it to your home screen - opens in its own window, no browser bar.
+            {available
+              ? 'Add it to your home screen - opens in its own window, no browser bar.'
+              : MANUAL_COPY[manual!]}
           </p>
         </div>
-        <Button
-          onClick={() => {
-            void promptInstall().then((accepted) => {
-              if (accepted) setDismissed(true);
-            });
-          }}
-        >
-          Install
-        </Button>
+        {available && (
+          <Button
+            onClick={() => {
+              void promptInstall().then((accepted) => {
+                if (accepted) setDismissed(true);
+              });
+            }}
+          >
+            Install
+          </Button>
+        )}
         <button
           onClick={dismiss}
           aria-label="Dismiss install prompt"

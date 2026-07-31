@@ -32,6 +32,36 @@ export function isStandalone(): boolean {
   );
 }
 
+/** Which set of manual install instructions fits the current browser. */
+export type ManualInstall = 'ios' | 'macos';
+
+/**
+ * Safari implements neither `beforeinstallprompt` nor any programmatic install,
+ * on any OS — the event this module waits for simply never arrives there, so the
+ * banner above would stay hidden forever. When Safari is the browser, installing
+ * is a manual gesture the offer has to describe rather than drive: on iOS via
+ * Share -> "Add to Home Screen", on macOS via File -> "Add to Dock".
+ *
+ * Returns which instructions fit, or null for browsers (Chromium, Edge) that
+ * raise their own prompt and are handled by `beforeinstallprompt`. UA sniffing is
+ * unavoidable here — there is no feature to detect, only the absence of one — so
+ * it is kept narrow: any Chromium marker rules Safari out.
+ */
+export function manualInstallPlatform(): ManualInstall | null {
+  if (typeof navigator === 'undefined' || !window.isSecureContext) return null;
+  const ua = navigator.userAgent;
+  // CriOS/FxIOS/EdgiOS are WebKit too, but they carry no home-screen action of
+  // their own; only Safari does. Android is Chromium's territory.
+  const isChromium = /chrome|crios|chromium|edg|edgios|opr|fxios|android/i.test(ua);
+  const isSafari = /safari/i.test(ua) && !isChromium;
+  if (!isSafari) return null;
+  const isIos =
+    /iphone|ipad|ipod/i.test(ua) ||
+    // iPadOS 13+ reports itself as macOS; a touch-capable "Mac" is really an iPad.
+    (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua));
+  return isIos ? 'ios' : 'macos';
+}
+
 export function onInstallAvailability(fn: Listener): () => void {
   listeners.add(fn);
   fn(deferred !== null);
