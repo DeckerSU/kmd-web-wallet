@@ -93,6 +93,89 @@ The production `dist/` is fully static — host it on any web server or CDN. The
 wasm binary (~36 MB, ~12 MB gzipped) is emitted as a content-hashed asset, so make
 sure your hosting serves it compressed and with long-lived cache headers.
 
+### Testing over HTTPS from the real world
+
+Two of the wallet's features cannot be exercised on `localhost` alone: passkeys
+need a secure context and bind to the hostname they were created under, and a
+browser only offers to install a PWA over HTTPS. Neither works from `npm run dev`
+either — the service worker registers only in a production build. So the loop is:
+build, serve the build, expose it over a public HTTPS URL.
+
+```bash
+# 1. Production build
+cd app
+npm run build
+
+# 2. Serve dist/ — see "Not npm run preview" below for why not the obvious one
+docker run --rm --network host \
+  -v "$PWD/dist:/usr/share/caddy:ro" \
+  caddy:2-alpine caddy file-server --root /usr/share/caddy --listen :5000 --access-log
+
+# 3. In another terminal: public HTTPS URL
+docker run --rm -it --network host \
+  cloudflare/cloudflared:latest tunnel --url http://localhost:5000
+```
+
+`cloudflared` prints a `https://<random-words>.trycloudflare.com` address; open
+that on the device under test.
+
+**Readable access logs.** `--access-log` emits one large JSON object per request.
+With `jq` on hand, this collapses it to a line each — worth it, because the
+`[gzip]` marker and byte count confirm the wasm went out compressed, and the
+client IP shows whether a request came from the phone or from the machine
+running the tunnel:
+
+```bash
+docker run --rm --network host \
+  -v "$PWD/dist:/usr/share/caddy:ro" \
+  caddy:2-alpine caddy file-server --root /usr/share/caddy --listen :5000 --access-log \
+  2>&1 | jq -rR 'fromjson? | select(.logger? == "http.log.access")
+    | (if .request.headers."Cf-Connecting-Ip" then .request.headers."Cf-Connecting-Ip"[0]
+       elif .request.headers."X-Forwarded-For" then (.request.headers."X-Forwarded-For"[0] | split(",")[0] | ltrimstr(" "))
+       else .request.remote_ip end) as $ip
+    | "\($ip)\t\(.status)  \(.request.method) \(.request.uri)  \(.size/1024|floor)KB  \((.duration*1000)|round)ms\(if .resp_headers."Content-Encoding" then "  [\(.resp_headers."Content-Encoding"[0])]" else "" end)"'
+```
+
+```
+203.0.113.42   200  GET /assets/kdflib_bg-B7JMfk74.wasm  11822KB  347ms  [gzip]
+203.0.113.42   200  GET /sw.js                               4KB    0ms
+203.0.113.42   404  GET /nope-404                            0KB    0ms
+```
+
+Caddy's own `remote_ip` is always `127.0.0.1` here — the connection comes from
+the local `cloudflared`, not the browser — so the real address has to be read
+from the forwarded header, which is what the `if/elif` above does. (`if` rather
+than jq's `//` operator: an empty string is truthy in jq, so `//` would pick a
+blank `X-Forwarded-For` over the fallback.)
+
+**Not `npm run preview`.** The obvious choice fails here for two measured
+reasons. It answers `403 Blocked request` to any `Host` it does not recognise,
+which is every request arriving through a tunnel, so nothing loads at all. And
+while it compresses JS, it serves the wasm uncompressed — 34 MB instead of
+11 MB, which is both slow over a tunnel and unrepresentative of production, where
+GitHub Pages gzips it. Caddy compresses by default and does not care about the
+`Host`.
+
+**A new hostname is a new world.** `trycloudflare` mints a fresh random hostname
+on every run, and browser storage is scoped to the origin. Passkeys are bound to
+the hostname as their relying-party ID, so one created under yesterday's tunnel
+will not unlock anything today; and the wallets themselves live in IndexedDB,
+which means **every new tunnel URL starts with no wallets and the seed has to be
+imported again**. Fine for checking installability once; for repeated passkey
+testing use a stable hostname — a reserved ngrok domain, or a named Cloudflare
+tunnel.
+
+**`--network host` is Linux-only.** Docker Desktop on macOS and Windows does not
+support it. There, publish the port and point the tunnel at the host gateway:
+
+```bash
+docker run --rm -p 5000:5000 -v "$PWD/dist:/usr/share/caddy:ro" \
+  caddy:2-alpine caddy file-server --root /usr/share/caddy --listen :5000 --access-log
+
+docker run --rm -it cloudflare/cloudflared:latest \
+  tunnel --url http://host.docker.internal:5000
+```
+
 ### Passkey login
 
 A wallet can be unlocked with a passkey instead of a typed password. KDF still
@@ -249,6 +332,34 @@ the same passkey prompt. Failing both, the seed phrase still restores the wallet
 from scratch. Password login therefore always remains available, and enrolment
 verifies the wrap round-trips before persisting, so a record that cannot be
 opened later is never written.
+
+### Installable app (PWA)
+
+The wallet can be installed to a home screen or desktop. A manifest
+(`public/manifest.webmanifest`) plus a service worker (`public/sw.js`) satisfy the
+browser's installability criteria, and `beforeinstallprompt` is captured so the
+offer appears as a dismissible bar in the app's own UI rather than the browser's
+infobar. A declined offer is remembered - a wallet that nags every visit is worse
+than one that never asks.
+
+The service worker is deliberately minimal, and two decisions in it are
+load-bearing:
+
+- **The 36 MB wasm is never cached.** Precaching it would consume most of a
+  typical origin's storage quota, and a stale copy would silently pin users to an
+  old wallet engine after a deploy. It goes to the network every time and is left
+  to the browser's HTTP cache, which the content hash in its filename makes safe.
+- **Cache lookups pass `ignoreVary`.** Static hosts commonly answer `Vary: Origin`,
+  and Vite marks its module script `crossorigin`, so the page requests an asset
+  with an `Origin` header while the worker's precache fetch has none. Matching
+  then compares the varied header, misses on an identical URL, and the offline
+  page renders blank with `ERR_FAILED`.
+
+"Works offline" here means the app's own screen appears and explains itself: the
+shell and its build assets are cached, the wasm is not, so an offline visit
+reaches the "Failed to start" screen with a Retry button. That is the honest
+state — the wallet needs Electrum servers and JSON-RPC nodes to do anything at
+all, so a genuinely offline wallet is not on offer.
 
 ### Boot diagnostics
 

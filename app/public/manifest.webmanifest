@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "KMD Wallet",
+  "short_name": "KMD Wallet",
+  "description": "Non-custodial Komodo wallet, powered by the Komodo DeFi Framework running as WebAssembly in your browser.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
