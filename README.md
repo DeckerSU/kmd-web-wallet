@@ -250,6 +250,34 @@ from scratch. Password login therefore always remains available, and enrolment
 verifies the wrap round-trips before persisting, so a record that cannot be
 opened later is never written.
 
+### Installable app (PWA)
+
+The wallet can be installed to a home screen or desktop. A manifest
+(`public/manifest.webmanifest`) plus a service worker (`public/sw.js`) satisfy the
+browser's installability criteria, and `beforeinstallprompt` is captured so the
+offer appears as a dismissible bar in the app's own UI rather than the browser's
+infobar. A declined offer is remembered - a wallet that nags every visit is worse
+than one that never asks.
+
+The service worker is deliberately minimal, and two decisions in it are
+load-bearing:
+
+- **The 36 MB wasm is never cached.** Precaching it would consume most of a
+  typical origin's storage quota, and a stale copy would silently pin users to an
+  old wallet engine after a deploy. It goes to the network every time and is left
+  to the browser's HTTP cache, which the content hash in its filename makes safe.
+- **Cache lookups pass `ignoreVary`.** Static hosts commonly answer `Vary: Origin`,
+  and Vite marks its module script `crossorigin`, so the page requests an asset
+  with an `Origin` header while the worker's precache fetch has none. Matching
+  then compares the varied header, misses on an identical URL, and the offline
+  page renders blank with `ERR_FAILED`.
+
+"Works offline" here means the app's own screen appears and explains itself: the
+shell and its build assets are cached, the wasm is not, so an offline visit
+reaches the "Failed to start" screen with a Retry button. That is the honest
+state — the wallet needs Electrum servers and JSON-RPC nodes to do anything at
+all, so a genuinely offline wallet is not on offer.
+
 ### Boot diagnostics
 
 Startup is several steps, and they used to be indistinguishable: the screen read

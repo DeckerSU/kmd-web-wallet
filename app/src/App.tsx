@@ -4,6 +4,7 @@ import { Alert, Button, Card, Spinner } from './components/ui';
 import AuthScreen from './features/auth/AuthScreen';
 import DevConsole from './features/debug/DevConsole';
 import Dashboard from './features/portfolio/Dashboard';
+import InstallPrompt from './features/pwa/InstallPrompt';
 import { BOOT_LABELS } from './kdf/bootStage';
 import { useAuthStore } from './store/auth';
 
@@ -23,6 +24,7 @@ export default function App() {
       {phase === 'boot-error' && <BootError />}
       {(phase === 'ready' || phase === 'authenticating') && <AuthScreen />}
       {phase === 'authenticated' && <Dashboard />}
+      <InstallPrompt />
     </div>
   );
 }
