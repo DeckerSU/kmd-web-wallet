@@ -230,8 +230,10 @@ export async function registerPasskey(
     rp: { name: 'KMD Wallet', id: window.location.hostname },
     user: {
       id: userId as BufferSource,
-      // Not persisted by the authenticator for non-discoverable credentials,
-      // so the wallet name does not leak into the OS passkey manager.
+      // Credentials are discoverable, so the authenticator does persist this and
+      // the wallet name is visible in the OS passkey manager. That is the trade
+      // taken for Android, where a non-discoverable credential yields no PRF
+      // secret at all — see the README.
       name: walletName,
       displayName: walletName,
     },
