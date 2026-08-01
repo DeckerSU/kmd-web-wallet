@@ -119,6 +119,15 @@ docker run --rm -it --network host \
 `cloudflared` prints a `https://<random-words>.trycloudflare.com` address; open
 that on the device under test.
 
+Rebuilding while the server runs is fine — `vite build` empties `dist/` but keeps
+the directory itself, so the bind mount stays valid and the next request already
+serves the new build.
+
+**Check the port is free first.** With `--network host`, a container whose port is
+already taken fails to bind, and requests then reach whatever *is* listening —
+which answers 404 for paths it has never heard of, from a server that looks like
+yours. `ss -ltn | grep :5000` before starting saves a confusing hour.
+
 **Readable access logs.** `--access-log` emits one large JSON object per request.
 With `jq` on hand, this collapses it to a line each — worth it, because the
 `[gzip]` marker and byte count confirm the wasm went out compressed, and the
@@ -342,13 +351,43 @@ offer appears as a dismissible bar in the app's own UI rather than the browser's
 infobar. A declined offer is remembered - a wallet that nags every visit is worse
 than one that never asks.
 
-The service worker is deliberately minimal, and two decisions in it are
-load-bearing:
+**The worker is generated at build time**, not written by hand. `sw/sw.template.js`
+carries the logic; the `swBuildManifest` plugin in `vite.config.ts` fills in the
+list of content-hashed filenames actually emitted and a build id derived from
+them, and writes `dist/sw.js`.
 
-- **The 36 MB wasm is never cached.** Precaching it would consume most of a
-  typical origin's storage quota, and a stale copy would silently pin users to an
-  old wallet engine after a deploy. It goes to the network every time and is left
-  to the browser's HTTP cache, which the content hash in its filename makes safe.
+That is not a convenience. A browser reinstalls a service worker only when the
+script's **bytes** change — nothing else triggers it, not a new `index.html`, not
+new assets. A hand-written worker is byte-identical on every deploy, so `install`
+never runs again and its cache stays frozen at whatever the first install
+captured. An installed app then keeps asking for assets that the next deploy
+deleted, and GitHub Pages answers 404. That is a real failure that was observed
+on Android, not a hypothetical. Embedding the filenames makes the script change
+exactly when the build does, which drives the whole update cycle: new bytes →
+reinstall → fresh precache under a new cache name → `activate` deletes the old
+one.
+
+The list is read from `dist/` on disk rather than parsed out of `index.html`,
+which matters because dynamic chunks (`kdflib-*.js`) are not referenced there and
+would otherwise be missed — and a missing dynamic chunk 404s at boot just as
+loudly as a missing entry chunk.
+
+Three further decisions in it are load-bearing:
+
+- **The 36 MB wasm is never precached.** It would take most of a typical origin's
+  storage quota, and a stale copy would pin users to an old wallet engine. It goes
+  to the network and is left to the browser's HTTP cache, which the content hash
+  in its filename makes safe.
+- **The precache is atomic.** `addAll` rejects if any single entry fails, failing
+  the install and leaving the previous worker in charge. Caching whatever
+  succeeded can store a shell whose script is missing — a shell that cannot boot
+  and, after the next deploy, cannot be repaired from the server either.
+- **Navigations are served from the precache, not the network.** Network-first
+  looks fresher but is what broke installed apps: HTML is cacheable
+  (`max-age=600` on Pages), so a navigation could be answered with a shell whose
+  assets the latest deploy had already deleted. A precached shell is always
+  consistent with precached assets, because the two are installed together or not
+  at all.
 - **Cache lookups pass `ignoreVary`.** Static hosts commonly answer `Vary: Origin`,
   and Vite marks its module script `crossorigin`, so the page requests an asset
   with an `Origin` header while the worker's precache fetch has none. Matching
