@@ -277,13 +277,9 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
       // Only cheap coins auto-activate on login. ZHTLC coins (ARRR) are
       // expensive (Zcash params download + chain scan), so they stay idle
       // until the user taps Activate.
-      // Each activation that enables history lazily opens KDF's shared
-      // IndexedDB `tx_history` database. Keep those initial opens ordered:
-      // parallel UTXO/TON activation can otherwise race the browser's
-      // single-open guard before the shared database handle is established.
-      for (const coin of WALLET_COINS.filter((c) => c.kind !== 'zhtlc')) {
-        await get().activateCoin(coin);
-      }
+      await Promise.all(
+        WALLET_COINS.filter((c) => c.kind !== 'zhtlc').map((coin) => get().activateCoin(coin)),
+      );
     },
 
     activateCoin: async (coin: WalletCoin) => {
