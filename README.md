@@ -1,7 +1,7 @@
 # KMD Web Wallet
 
-A modern, non-custodial web wallet for **Komodo (KMD)**, **KomodoClassic (KMDCL)**,
-**Pirate (ARRR)** and **Gleec (GLEEC)**,
+A modern, non-custodial web wallet for **GRAM (TON)**, **Komodo (KMD)**,
+**KomodoClassic (KMDCL)**, **Pirate (ARRR)** and **Gleec (GLEEC)**,
 built with React and powered by the
 [Komodo DeFi Framework](https://github.com/KomodoPlatform/komodo-defi-framework) (KDF)
 running entirely in the browser as a WebAssembly module.
@@ -30,6 +30,7 @@ just static files.
   transaction history:
   | Coin | Protocol | Activation | Transaction history |
   |---|---|---|---|
+  | GRAM | TON mainnet (Toncenter HTTPS) | `enable_ton`, instant | `my_tx_history` (v2) |
   | KMD, KMDCL | UTXO (Electrum over WSS) | `task::enable_utxo`, instant | `my_tx_history` (v2) |
   | ARRR | ZHTLC / shielded (lightwalletd) | `task::enable_z_coin`, on demand — sapling params + chain scan | `z_coin_tx_history` |
   | GLEEC | EVM / ETH (JSON-RPC over HTTPS) | `enable_eth_with_tokens`, instant | Blockscout explorer (see below) |

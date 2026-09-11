@@ -1,5 +1,5 @@
 import { kdf } from './client';
-import { coinByTicker, type ElectrumServer, type EvmNode } from '../config/coins';
+import { coinByTicker, type ElectrumServer, type EvmNode, type TonNode } from '../config/coins';
 
 /** Typed wrappers for the KDF RPC methods the app uses. */
 
@@ -219,6 +219,33 @@ export async function enableEthWithTokens(
   return { currentBlock: res.current_block, address, balance };
 }
 
+// --- TON (GRAM) activation --------------------------------------------------
+
+/** `enable_ton` completion details needed by the Iguana wallet UI. */
+export interface TonActivationResult {
+  address: string;
+}
+
+/**
+ * Start native TON activation. KDF uses `ContextPrivKey` by default, which is
+ * the current Iguana key material from this web wallet's `enable_hd: false`
+ * session. Do not supply a TON-native mnemonic policy here.
+ */
+export async function enableTonInit(ticker: string, nodes: TonNode[]): Promise<number> {
+  const res = await kdf.rpc2<{ task_id: number }>('enable_ton', {
+    ticker,
+    activation_params: { nodes, tx_history: true },
+  });
+  return res.task_id;
+}
+
+export function enableTonStatus(taskId: number): Promise<TaskStatus<TonActivationResult>> {
+  return kdf.rpc2<TaskStatus<TonActivationResult>>('task::enable_ton::status', {
+    task_id: taskId,
+    forget_if_finished: false,
+  });
+}
+
 export interface MyBalanceResult {
   coin: string;
   address: string;
@@ -261,7 +288,14 @@ export interface EthFeeDetails {
   total_fee: string;
 }
 
-export type FeeDetails = UtxoFeeDetails | EthFeeDetails;
+export interface TonFeeDetails {
+  type: 'Ton';
+  coin: string;
+  total_fee: string;
+  is_estimated: boolean;
+}
+
+export type FeeDetails = UtxoFeeDetails | EthFeeDetails | TonFeeDetails;
 
 /** The fee actually paid, whichever protocol shape `fee` uses. */
 export function feeAmount(fee: FeeDetails | undefined): string {
@@ -295,11 +329,24 @@ export interface TransactionDetails {
 export type WithdrawAmount = { amount: string } | { max: true };
 
 /** Build a signed transaction (not broadcast) moving funds to `to`. */
-export function withdraw(
+export async function withdraw(
   coin: string,
   to: string,
   amount: WithdrawAmount,
 ): Promise<TransactionDetails> {
+  if (coinByTicker(coin)?.kind === 'ton') {
+    if ('max' in amount) throw new Error('GRAM does not support Max withdrawal');
+    // TON first builds a short-lived signed BOC for the confirmation screen;
+    // send_raw_transaction performs the one explicit broadcast after consent.
+    return kdf.rpc<TransactionDetails>({
+      method: 'withdraw',
+      coin,
+      to,
+      ...amount,
+      broadcast: false,
+      expiration_seconds: 60,
+    });
+  }
   return kdf.rpc2<TransactionDetails>('withdraw', { coin, to, ...amount });
 }
 
@@ -409,10 +456,12 @@ export function myTxHistory(
   pageNumber = 1,
   limit = 20,
 ): Promise<TxHistoryResult> {
+  const target = coinByTicker(coin)?.kind === 'ton' ? { type: 'iguana' } : undefined;
   return kdf.rpc2<TxHistoryResult>('my_tx_history', {
     coin,
     limit,
     paging_options: { PageNumber: pageNumber },
+    ...(target ? { target } : {}),
   });
 }
 

@@ -58,6 +58,7 @@ export default function SendModal(props: {
   const coin = coinByTicker(ticker);
   const isZhtlc = coin?.kind === 'zhtlc';
   const isEvm = coin?.kind === 'evm';
+  const isTon = coin?.kind === 'ton';
   const decimals = coin?.decimals ?? 8;
 
   const [step, setStep] = useState<Step>({ name: 'form' });
@@ -125,7 +126,7 @@ export default function SendModal(props: {
             label="Recipient address"
             value={to}
             onChange={setTo}
-            placeholder={isZhtlc ? 'zs…' : isEvm ? '0x…' : 'R…'}
+            placeholder={isZhtlc ? 'zs…' : isEvm ? '0x…' : isTon ? 'UQ…' : 'R…'}
             autoFocus
           />
           <div>
@@ -141,13 +142,15 @@ export default function SendModal(props: {
                   placeholder="0.0"
                 />
               </div>
-              <Button
-                variant={isMax ? 'primary' : 'ghost'}
-                onClick={() => setIsMax(!isMax)}
-                className="mb-[1px]"
-              >
-                Max
-              </Button>
+              {!isTon && (
+                <Button
+                  variant={isMax ? 'primary' : 'ghost'}
+                  onClick={() => setIsMax(!isMax)}
+                  className="mb-[1px]"
+                >
+                  Max
+                </Button>
+              )}
             </div>
             <p className="mt-1 text-xs text-zinc-500">
               Available: {formatAmount(spendable, decimals)} {ticker}
@@ -219,9 +222,11 @@ export default function SendModal(props: {
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-2xl text-emerald-400">
             ✓
           </div>
-          <p className="text-sm text-zinc-300">Transaction broadcast</p>
+          <p className="text-sm text-zinc-300">
+            {isTon ? 'External message submitted' : 'Transaction broadcast'}
+          </p>
           <p className="break-all font-mono text-xs text-zinc-500">{step.txid}</p>
-          {explorerTxUrl && (
+          {explorerTxUrl && !isTon && (
             <a
               href={explorerTxUrl(step.txid)}
               target="_blank"
@@ -230,6 +235,12 @@ export default function SendModal(props: {
             >
               View in explorer ↗
             </a>
+          )}
+          {isTon && (
+            <p className="text-xs text-zinc-500">
+              The message identifier is not a finalized transaction hash. Check the GRAM history after it is
+              included on-chain.
+            </p>
           )}
           <Button className="w-full" onClick={props.onClose}>
             Done

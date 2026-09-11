@@ -27,8 +27,15 @@ export interface EvmNode {
   komodo_proxy: boolean;
 }
 
+/** TON Center-compatible native TON RPC endpoint. */
+export interface TonNode {
+  url: string;
+  /** Optional provider key. Do not embed a private key in the public web app. */
+  api_key?: string;
+}
+
 /** How the app activates and transacts with a coin. */
-export type CoinKind = 'utxo' | 'zhtlc' | 'evm';
+export type CoinKind = 'utxo' | 'zhtlc' | 'evm' | 'ton';
 
 export interface WalletCoin {
   kind: CoinKind;
@@ -41,6 +48,8 @@ export interface WalletCoin {
   lightwalletd?: string[];
   /** EVM only: JSON-RPC nodes (https or wss; both work in WASM). */
   nodes?: EvmNode[];
+  /** TON only: TON Center-compatible API endpoints. */
+  tonNodes?: TonNode[];
   /** EVM only: etomic swap contracts, required by `enable_eth_with_tokens`. */
   swapContractAddress?: string;
   fallbackSwapContract?: string;
@@ -217,8 +226,40 @@ export const GLEEC: WalletCoin = {
   explorerTxUrl: (txid) => `https://evm-explorer.gleec.com/tx/${txid}`,
 };
 
+/**
+ * GRAM — native TON mainnet coin. KDF derives its single Iguana wallet from
+ * the existing KDF private-key material; it does not switch the app to a TON
+ * mnemonic or HD wallet mode. TON Center accepts anonymous requests at one
+ * per second, which is sufficient for this wallet's activation and polling.
+ */
+export const GRAM: WalletCoin = {
+  kind: 'ton',
+  decimals: 9,
+  config: {
+    coin: 'GRAM',
+    name: 'gram',
+    fname: 'GRAM (TON)',
+    mm2: 1,
+    wallet_only: true,
+    decimals: 9,
+    avg_blocktime: 5,
+    required_confirmations: 1,
+    protocol: {
+      type: 'TON',
+      protocol_data: {
+        network: 'Mainnet',
+        wallet_version: 'V5R1',
+        workchain: 0,
+        subwallet_number: 0,
+      },
+    },
+  },
+  tonNodes: [{ url: 'https://toncenter.com/api/v2' }],
+  explorerTxUrl: (txid) => `https://tonscan.org/tx/${encodeURIComponent(txid)}`,
+};
+
 /** Display order of the asset list. */
-export const WALLET_COINS: WalletCoin[] = [GLEEC, KMD, KMDCL, ARRR];
+export const WALLET_COINS: WalletCoin[] = [GRAM, GLEEC, KMD, KMDCL, ARRR];
 
 export const coinByTicker = (ticker: string): WalletCoin | undefined =>
   WALLET_COINS.find((c) => c.config.coin === ticker);

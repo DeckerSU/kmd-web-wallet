@@ -3,6 +3,8 @@ import { WALLET_COINS, coinByTicker, type WalletCoin } from '../config/coins';
 import {
   disableCoin,
   enableEthWithTokens,
+  enableTonInit,
+  enableTonStatus,
   enableUtxoInit,
   enableUtxoStatus,
   enableZCoinInit,
@@ -194,6 +196,30 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
     });
   };
 
+  const activateTon = async (coin: WalletCoin) => {
+    const ticker = coin.config.coin;
+    const taskId = await enableTonInit(ticker, coin.tonNodes ?? []);
+    const deadline = Date.now() + UTXO_ACTIVATION_TIMEOUT_MS;
+    for (;;) {
+      const res = await enableTonStatus(taskId);
+      if (res.status === 'Ok') {
+        // Keep the balance shape identical to other Iguana coins and use the
+        // stable legacy balance endpoint after the v2 activation task.
+        const balance = await myBalance(ticker);
+        patchCoin(ticker, {
+          status: 'active',
+          address: res.details.address,
+          balance: { spendable: balance.balance, unspendable: balance.unspendable_balance },
+          progress: null,
+        });
+        return;
+      }
+      if (res.status === 'Error') throw new Error(res.details.error);
+      if (Date.now() > deadline) throw new Error('Activation timed out');
+      await sleep(ACTIVATION_POLL_MS);
+    }
+  };
+
   const finishZhtlc = (ticker: string, details: ZCoinActivationResult) => {
     const prevSync = get().coins[ticker].sync;
     // ZHTLC balance is a direct { spendable, unspendable }, not keyed by ticker.
@@ -267,6 +293,8 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => {
           await activateZhtlc(coin, loadSyncOverride(ticker));
         } else if (coin.kind === 'evm') {
           await activateEvm(coin);
+        } else if (coin.kind === 'ton') {
+          await activateTon(coin);
         } else {
           await activateUtxo(coin);
         }

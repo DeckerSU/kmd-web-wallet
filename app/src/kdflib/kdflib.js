@@ -1,5 +1,5 @@
-import { device_interface } from './snippets/hw_common-c933ea30ea0fef0d/inline0.js';
-import { get_webusb } from './snippets/hw_common-c933ea30ea0fef0d/inline1.js';
+import { get_webusb } from './snippets/hw_common-c933ea30ea0fef0d/inline0.js';
+import { device_interface } from './snippets/hw_common-c933ea30ea0fef0d/inline1.js';
 import { websocket_transport } from './snippets/libp2p-wasm-ext-7e5f5edb880ee0f5/src/websockets.js';
 import { get_provider_js } from './snippets/web3-3a881fca17d19cd8/inline0.js';
 
@@ -240,100 +240,6 @@ function debugString(val) {
     return className;
 }
 /**
- * Get the MarketMaker2 version.
- *
- * # Usage
- *
- * The function can be used before mm2 runs.
- *
- * ```javascript
- * import init, {mm2_version} from "./path/to/mm2.js";
- *
- * function print_version () {
- *     const response = mm2_version();
- *     console.log(`version: ${response.result}, datetime: ${response.datetime}`);
- * }
- * ```
- * @returns {any}
- */
-export function mm2_version() {
-    const ret = wasm.mm2_version();
-    return takeObject(ret);
-}
-
-/**
- * Invokes an RPC request.
- *
- * # Parameters
- *
- * * `payload` is a UTF-8 string JSON.
- *
- * # Usage
- *
- * ```javascript
- * import init, {mm2_rpc, Mm2RpcErr} from "./path/to/mm2.js";
- *
- * async function version () {
- *     try {
- *         const payload = {
- *             "userpass": "test123",
- *             "method": "version",
- *         };
- *         const response = await mm2_rpc(payload);
- *         return response.result;
- *     } catch (e) {
- *         switch (e) {
- *             case Mm2RpcErr.NotRunning:
- *                 alert("MarketMaker2 not running yet...");
- *                 break;
- *             // handle other errors...
- *             default:
- *                 alert(`Unexpected error: ${e}`);
- *                 break;
- *         }
- *     }
- * }
- * ```
- * @param {any} payload
- * @returns {Promise<any>}
- */
-export function mm2_rpc(payload) {
-    const ret = wasm.mm2_rpc(addHeapObject(payload));
-    return takeObject(ret);
-}
-
-/**
- * Stops the MarketMaker2 instance.
- *
- * # Usage
- *
- * ```javascript
- * import init, {mm2_stop} from "./path/to/mm2.js";
- *
- * async function stop () {
- *     try {
- *         await mm2_stop();
- *     } catch (e) {
- *         switch (e) {
- *             case Mm2RpcErr.NotRunning:
- *                 alert("MarketMaker2 not running yet...");
- *                 break;
- *             // handle other errors...
- *             default:
- *                 alert(`Unexpected error: ${e}`);
- *                 break;
- *         }
- *     }
- * }
- * ```
- * @returns {Promise<void>}
- */
-export function mm2_stop() {
-    const ret = wasm.mm2_stop();
-    return takeObject(ret);
-}
-
-/**
  * Runs a MarketMaker2 instance.
  *
  * # Parameters
@@ -386,6 +292,100 @@ export function mm2_main_status() {
     return ret;
 }
 
+/**
+ * Invokes an RPC request.
+ *
+ * # Parameters
+ *
+ * * `payload` is a UTF-8 string JSON.
+ *
+ * # Usage
+ *
+ * ```javascript
+ * import init, {mm2_rpc, Mm2RpcErr} from "./path/to/mm2.js";
+ *
+ * async function version () {
+ *     try {
+ *         const payload = {
+ *             "userpass": "test123",
+ *             "method": "version",
+ *         };
+ *         const response = await mm2_rpc(payload);
+ *         return response.result;
+ *     } catch (e) {
+ *         switch (e) {
+ *             case Mm2RpcErr.NotRunning:
+ *                 alert("MarketMaker2 not running yet...");
+ *                 break;
+ *             // handle other errors...
+ *             default:
+ *                 alert(`Unexpected error: ${e}`);
+ *                 break;
+ *         }
+ *     }
+ * }
+ * ```
+ * @param {any} payload
+ * @returns {Promise<any>}
+ */
+export function mm2_rpc(payload) {
+    const ret = wasm.mm2_rpc(addHeapObject(payload));
+    return takeObject(ret);
+}
+
+/**
+ * Get the MarketMaker2 version.
+ *
+ * # Usage
+ *
+ * The function can be used before mm2 runs.
+ *
+ * ```javascript
+ * import init, {mm2_version} from "./path/to/mm2.js";
+ *
+ * function print_version () {
+ *     const response = mm2_version();
+ *     console.log(`version: ${response.result}, datetime: ${response.datetime}`);
+ * }
+ * ```
+ * @returns {any}
+ */
+export function mm2_version() {
+    const ret = wasm.mm2_version();
+    return takeObject(ret);
+}
+
+/**
+ * Stops the MarketMaker2 instance.
+ *
+ * # Usage
+ *
+ * ```javascript
+ * import init, {mm2_stop} from "./path/to/mm2.js";
+ *
+ * async function stop () {
+ *     try {
+ *         await mm2_stop();
+ *     } catch (e) {
+ *         switch (e) {
+ *             case Mm2RpcErr.NotRunning:
+ *                 alert("MarketMaker2 not running yet...");
+ *                 break;
+ *             // handle other errors...
+ *             default:
+ *                 alert(`Unexpected error: ${e}`);
+ *                 break;
+ *         }
+ *     }
+ * }
+ * ```
+ * @returns {Promise<void>}
+ */
+export function mm2_stop() {
+    const ret = wasm.mm2_stop();
+    return takeObject(ret);
+}
+
 function _assertClass(instance, klass) {
     if (!(instance instanceof klass)) {
         throw new Error(`expected instance of ${klass.name}`);
@@ -407,18 +407,6 @@ function addBorrowedObject(obj) {
     return stack_pointer;
 }
 /**
- * Handler for `console.debug` invocations. See above.
- * @param {Array<any>} args
- */
-export function __wbgtest_console_debug(args) {
-    try {
-        wasm.__wbgtest_console_debug(addBorrowedObject(args));
-    } finally {
-        heap[stack_pointer++] = undefined;
-    }
-}
-
-/**
  * Handler for `console.log` invocations.
  *
  * If a test is currently running it takes the `args` array and stringifies
@@ -430,6 +418,18 @@ export function __wbgtest_console_debug(args) {
 export function __wbgtest_console_log(args) {
     try {
         wasm.__wbgtest_console_log(addBorrowedObject(args));
+    } finally {
+        heap[stack_pointer++] = undefined;
+    }
+}
+
+/**
+ * Handler for `console.debug` invocations. See above.
+ * @param {Array<any>} args
+ */
+export function __wbgtest_console_debug(args) {
+    try {
+        wasm.__wbgtest_console_debug(addBorrowedObject(args));
     } finally {
         heap[stack_pointer++] = undefined;
     }
@@ -448,24 +448,24 @@ export function __wbgtest_console_info(args) {
 }
 
 /**
- * Handler for `console.error` invocations. See above.
- * @param {Array<any>} args
- */
-export function __wbgtest_console_error(args) {
-    try {
-        wasm.__wbgtest_console_error(addBorrowedObject(args));
-    } finally {
-        heap[stack_pointer++] = undefined;
-    }
-}
-
-/**
  * Handler for `console.warn` invocations. See above.
  * @param {Array<any>} args
  */
 export function __wbgtest_console_warn(args) {
     try {
         wasm.__wbgtest_console_warn(addBorrowedObject(args));
+    } finally {
+        heap[stack_pointer++] = undefined;
+    }
+}
+
+/**
+ * Handler for `console.error` invocations. See above.
+ * @param {Array<any>} args
+ */
+export function __wbgtest_console_error(args) {
+    try {
+        wasm.__wbgtest_console_error(addBorrowedObject(args));
     } finally {
         heap[stack_pointer++] = undefined;
     }
@@ -507,15 +507,15 @@ function __wbg_adapter_53(arg0, arg1, arg2) {
     wasm.__wbindgen_export_8(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wbg_adapter_167(arg0, arg1) {
+function __wbg_adapter_213(arg0, arg1) {
     wasm.__wbindgen_export_9(arg0, arg1);
 }
 
-function __wbg_adapter_537(arg0, arg1, arg2, arg3, arg4) {
+function __wbg_adapter_499(arg0, arg1, arg2, arg3, arg4) {
     wasm.__wbindgen_export_10(arg0, arg1, addHeapObject(arg2), arg3, addHeapObject(arg4));
 }
 
-function __wbg_adapter_586(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_578(arg0, arg1, arg2, arg3) {
     wasm.__wbindgen_export_11(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
@@ -644,6 +644,26 @@ export class Hash {
         }
     }
     /**
+     * Return the base58 string representation of the hash
+     * @returns {string}
+     */
+    toString() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.hash_toString(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export_4(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * Checks if two `Hash`s are equal
      * @param {Hash} other
      * @returns {boolean}
@@ -668,26 +688,6 @@ export class Hash {
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * Return the base58 string representation of the hash
-     * @returns {string}
-     */
-    toString() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.hash_toString(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export_4(deferred1_0, deferred1_1, 1);
         }
     }
 }
@@ -953,6 +953,61 @@ export class Pubkey {
         }
     }
     /**
+     * Return the base58 string representation of the public key
+     * @returns {string}
+     */
+    toString() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.pubkey_toString(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export_4(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Check if a `Pubkey` is on the ed25519 curve.
+     * @returns {boolean}
+     */
+    isOnCurve() {
+        const ret = wasm.pubkey_isOnCurve(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Checks if two `Pubkey`s are equal
+     * @param {Pubkey} other
+     * @returns {boolean}
+     */
+    equals(other) {
+        _assertClass(other, Pubkey);
+        const ret = wasm.pubkey_equals(this.__wbg_ptr, other.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Return the `Uint8Array` representation of the public key
+     * @returns {Uint8Array}
+     */
+    toBytes() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.pubkey_toBytes(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export_4(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Derive a Pubkey from another Pubkey, string seed, and a program id
      * @param {Pubkey} base
      * @param {string} seed
@@ -967,6 +1022,30 @@ export class Pubkey {
             const len0 = WASM_VECTOR_LEN;
             _assertClass(owner, Pubkey);
             wasm.pubkey_createWithSeed(retptr, base.__wbg_ptr, ptr0, len0, owner.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return Pubkey.__wrap(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Derive a program address from seeds and a program id
+     * @param {any[]} seeds
+     * @param {Pubkey} program_id
+     * @returns {Pubkey}
+     */
+    static createProgramAddress(seeds, program_id) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArrayJsValueToWasm0(seeds, wasm.__wbindgen_export_0);
+            const len0 = WASM_VECTOR_LEN;
+            _assertClass(program_id, Pubkey);
+            wasm.pubkey_createProgramAddress(retptr, ptr0, len0, program_id.__wbg_ptr);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -1004,85 +1083,6 @@ export class Pubkey {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
-    }
-    /**
-     * Derive a program address from seeds and a program id
-     * @param {any[]} seeds
-     * @param {Pubkey} program_id
-     * @returns {Pubkey}
-     */
-    static createProgramAddress(seeds, program_id) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArrayJsValueToWasm0(seeds, wasm.__wbindgen_export_0);
-            const len0 = WASM_VECTOR_LEN;
-            _assertClass(program_id, Pubkey);
-            wasm.pubkey_createProgramAddress(retptr, ptr0, len0, program_id.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            if (r2) {
-                throw takeObject(r1);
-            }
-            return Pubkey.__wrap(r0);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * Checks if two `Pubkey`s are equal
-     * @param {Pubkey} other
-     * @returns {boolean}
-     */
-    equals(other) {
-        _assertClass(other, Pubkey);
-        const ret = wasm.pubkey_equals(this.__wbg_ptr, other.__wbg_ptr);
-        return ret !== 0;
-    }
-    /**
-     * Return the `Uint8Array` representation of the public key
-     * @returns {Uint8Array}
-     */
-    toBytes() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.pubkey_toBytes(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export_4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * Return the base58 string representation of the public key
-     * @returns {string}
-     */
-    toString() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.pubkey_toString(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export_4(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * Check if a `Pubkey` is on the ed25519 curve.
-     * @returns {boolean}
-     */
-    isOnCurve() {
-        const ret = wasm.pubkey_isOnCurve(this.__wbg_ptr);
-        return ret !== 0;
     }
 }
 
@@ -1225,6 +1225,37 @@ export class SystemInstruction {
         return Instruction.__wrap(ret);
     }
     /**
+     * @param {Pubkey} from_pubkey
+     * @param {Pubkey} to_pubkey
+     * @param {Pubkey} base
+     * @param {string} seed
+     * @param {bigint} lamports
+     * @param {bigint} space
+     * @param {Pubkey} owner
+     * @returns {Instruction}
+     */
+    static createAccountWithSeed(from_pubkey, to_pubkey, base, seed, lamports, space, owner) {
+        _assertClass(from_pubkey, Pubkey);
+        _assertClass(to_pubkey, Pubkey);
+        _assertClass(base, Pubkey);
+        const ptr0 = passStringToWasm0(seed, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        _assertClass(owner, Pubkey);
+        const ret = wasm.systeminstruction_createAccountWithSeed(from_pubkey.__wbg_ptr, to_pubkey.__wbg_ptr, base.__wbg_ptr, ptr0, len0, lamports, space, owner.__wbg_ptr);
+        return Instruction.__wrap(ret);
+    }
+    /**
+     * @param {Pubkey} pubkey
+     * @param {Pubkey} owner
+     * @returns {Instruction}
+     */
+    static assign(pubkey, owner) {
+        _assertClass(pubkey, Pubkey);
+        _assertClass(owner, Pubkey);
+        const ret = wasm.systeminstruction_assign(pubkey.__wbg_ptr, owner.__wbg_ptr);
+        return Instruction.__wrap(ret);
+    }
+    /**
      * @param {Pubkey} pubkey
      * @param {Pubkey} base
      * @param {string} seed
@@ -1241,20 +1272,15 @@ export class SystemInstruction {
         return Instruction.__wrap(ret);
     }
     /**
-     * @param {Pubkey} address
-     * @param {Pubkey} base
-     * @param {string} seed
-     * @param {bigint} space
-     * @param {Pubkey} owner
+     * @param {Pubkey} from_pubkey
+     * @param {Pubkey} to_pubkey
+     * @param {bigint} lamports
      * @returns {Instruction}
      */
-    static allocateWithSeed(address, base, seed, space, owner) {
-        _assertClass(address, Pubkey);
-        _assertClass(base, Pubkey);
-        const ptr0 = passStringToWasm0(seed, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
-        const len0 = WASM_VECTOR_LEN;
-        _assertClass(owner, Pubkey);
-        const ret = wasm.systeminstruction_allocateWithSeed(address.__wbg_ptr, base.__wbg_ptr, ptr0, len0, space, owner.__wbg_ptr);
+    static transfer(from_pubkey, to_pubkey, lamports) {
+        _assertClass(from_pubkey, Pubkey);
+        _assertClass(to_pubkey, Pubkey);
+        const ret = wasm.systeminstruction_transfer(from_pubkey.__wbg_ptr, to_pubkey.__wbg_ptr, lamports);
         return Instruction.__wrap(ret);
     }
     /**
@@ -1274,6 +1300,33 @@ export class SystemInstruction {
         _assertClass(from_owner, Pubkey);
         _assertClass(to_pubkey, Pubkey);
         const ret = wasm.systeminstruction_transferWithSeed(from_pubkey.__wbg_ptr, from_base.__wbg_ptr, ptr0, len0, from_owner.__wbg_ptr, to_pubkey.__wbg_ptr, lamports);
+        return Instruction.__wrap(ret);
+    }
+    /**
+     * @param {Pubkey} pubkey
+     * @param {bigint} space
+     * @returns {Instruction}
+     */
+    static allocate(pubkey, space) {
+        _assertClass(pubkey, Pubkey);
+        const ret = wasm.systeminstruction_allocate(pubkey.__wbg_ptr, space);
+        return Instruction.__wrap(ret);
+    }
+    /**
+     * @param {Pubkey} address
+     * @param {Pubkey} base
+     * @param {string} seed
+     * @param {bigint} space
+     * @param {Pubkey} owner
+     * @returns {Instruction}
+     */
+    static allocateWithSeed(address, base, seed, space, owner) {
+        _assertClass(address, Pubkey);
+        _assertClass(base, Pubkey);
+        const ptr0 = passStringToWasm0(seed, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
+        const len0 = WASM_VECTOR_LEN;
+        _assertClass(owner, Pubkey);
+        const ret = wasm.systeminstruction_allocateWithSeed(address.__wbg_ptr, base.__wbg_ptr, ptr0, len0, space, owner.__wbg_ptr);
         return Instruction.__wrap(ret);
     }
     /**
@@ -1328,59 +1381,6 @@ export class SystemInstruction {
         const ret = wasm.systeminstruction_authorizeNonceAccount(nonce_pubkey.__wbg_ptr, authorized_pubkey.__wbg_ptr, new_authority.__wbg_ptr);
         return Instruction.__wrap(ret);
     }
-    /**
-     * @param {Pubkey} from_pubkey
-     * @param {Pubkey} to_pubkey
-     * @param {Pubkey} base
-     * @param {string} seed
-     * @param {bigint} lamports
-     * @param {bigint} space
-     * @param {Pubkey} owner
-     * @returns {Instruction}
-     */
-    static createAccountWithSeed(from_pubkey, to_pubkey, base, seed, lamports, space, owner) {
-        _assertClass(from_pubkey, Pubkey);
-        _assertClass(to_pubkey, Pubkey);
-        _assertClass(base, Pubkey);
-        const ptr0 = passStringToWasm0(seed, wasm.__wbindgen_export_0, wasm.__wbindgen_export_1);
-        const len0 = WASM_VECTOR_LEN;
-        _assertClass(owner, Pubkey);
-        const ret = wasm.systeminstruction_createAccountWithSeed(from_pubkey.__wbg_ptr, to_pubkey.__wbg_ptr, base.__wbg_ptr, ptr0, len0, lamports, space, owner.__wbg_ptr);
-        return Instruction.__wrap(ret);
-    }
-    /**
-     * @param {Pubkey} pubkey
-     * @param {Pubkey} owner
-     * @returns {Instruction}
-     */
-    static assign(pubkey, owner) {
-        _assertClass(pubkey, Pubkey);
-        _assertClass(owner, Pubkey);
-        const ret = wasm.systeminstruction_assign(pubkey.__wbg_ptr, owner.__wbg_ptr);
-        return Instruction.__wrap(ret);
-    }
-    /**
-     * @param {Pubkey} pubkey
-     * @param {bigint} space
-     * @returns {Instruction}
-     */
-    static allocate(pubkey, space) {
-        _assertClass(pubkey, Pubkey);
-        const ret = wasm.systeminstruction_allocate(pubkey.__wbg_ptr, space);
-        return Instruction.__wrap(ret);
-    }
-    /**
-     * @param {Pubkey} from_pubkey
-     * @param {Pubkey} to_pubkey
-     * @param {bigint} lamports
-     * @returns {Instruction}
-     */
-    static transfer(from_pubkey, to_pubkey, lamports) {
-        _assertClass(from_pubkey, Pubkey);
-        _assertClass(to_pubkey, Pubkey);
-        const ret = wasm.systeminstruction_transfer(from_pubkey.__wbg_ptr, to_pubkey.__wbg_ptr, lamports);
-        return Instruction.__wrap(ret);
-    }
 }
 
 const TransactionFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1413,14 +1413,6 @@ export class Transaction {
         wasm.__wbg_transaction_free(ptr, 0);
     }
     /**
-     * Return a message containing all data that should be signed.
-     * @returns {Message}
-     */
-    message() {
-        const ret = wasm.transaction_message(this.__wbg_ptr);
-        return Message.__wrap(ret);
-    }
-    /**
      * Create a new `Transaction`
      * @param {Instructions} instructions
      * @param {Pubkey | null} [payer]
@@ -1437,6 +1429,14 @@ export class Transaction {
         this.__wbg_ptr = ret >>> 0;
         TransactionFinalization.register(this, this.__wbg_ptr, this);
         return this;
+    }
+    /**
+     * Return a message containing all data that should be signed.
+     * @returns {Message}
+     */
+    message() {
+        const ret = wasm.transaction_message(this.__wbg_ptr);
+        return Message.__wrap(ret);
     }
     /**
      * Return the serialized message data to sign.
@@ -1465,6 +1465,13 @@ export class Transaction {
         wasm.transaction_partialSign(this.__wbg_ptr, keypair.__wbg_ptr, recent_blockhash.__wbg_ptr);
     }
     /**
+     * @returns {boolean}
+     */
+    isSigned() {
+        const ret = wasm.transaction_isSigned(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * @returns {Uint8Array}
      */
     toBytes() {
@@ -1479,13 +1486,6 @@ export class Transaction {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
-    }
-    /**
-     * @returns {boolean}
-     */
-    isSigned() {
-        const ret = wasm.transaction_isSigned(this.__wbg_ptr);
-        return ret !== 0;
     }
     /**
      * @param {Uint8Array} bytes
@@ -1533,20 +1533,6 @@ export class WasmBindgenTestContext {
         wasm.__wbg_wasmbindgentestcontext_free(ptr, 0);
     }
     /**
-     * Handle filter argument.
-     * @param {number} filtered
-     */
-    filtered_count(filtered) {
-        wasm.wasmbindgentestcontext_filtered_count(this.__wbg_ptr, filtered);
-    }
-    /**
-     * Handle `--include-ignored` flag.
-     * @param {boolean} include_ignored
-     */
-    include_ignored(include_ignored) {
-        wasm.wasmbindgentestcontext_include_ignored(this.__wbg_ptr, include_ignored);
-    }
-    /**
      * Creates a new context ready to run tests.
      *
      * A `Context` is the main structure through which test execution is
@@ -1558,6 +1544,20 @@ export class WasmBindgenTestContext {
         this.__wbg_ptr = ret >>> 0;
         WasmBindgenTestContextFinalization.register(this, this.__wbg_ptr, this);
         return this;
+    }
+    /**
+     * Handle `--include-ignored` flag.
+     * @param {boolean} include_ignored
+     */
+    include_ignored(include_ignored) {
+        wasm.wasmbindgentestcontext_include_ignored(this.__wbg_ptr, include_ignored);
+    }
+    /**
+     * Handle filter argument.
+     * @param {number} filtered
+     */
+    filtered_count(filtered) {
+        wasm.wasmbindgentestcontext_filtered_count(this.__wbg_ptr, filtered);
     }
     /**
      * Executes a list of tests, returning a promise representing their
@@ -1852,7 +1852,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_537(a, state0.b, arg0, arg1, arg2);
+                    return __wbg_adapter_499(a, state0.b, arg0, arg1, arg2);
                 } finally {
                     state0.a = a;
                 }
@@ -2230,7 +2230,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_586(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_578(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2743,7 +2743,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_167(a, state0.b, );
+                    return __wbg_adapter_213(a, state0.b, );
                 } finally {
                     state0.a = a;
                 }
@@ -2781,32 +2781,32 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper33546 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 16309, __wbg_adapter_38);
+    imports.wbg.__wbindgen_closure_wrapper32952 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 15889, __wbg_adapter_38);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper33548 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 16309, __wbg_adapter_38);
+    imports.wbg.__wbindgen_closure_wrapper32954 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 15889, __wbg_adapter_38);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper33550 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 16309, __wbg_adapter_38);
+    imports.wbg.__wbindgen_closure_wrapper32956 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 15889, __wbg_adapter_38);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper33552 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 16309, __wbg_adapter_38);
+    imports.wbg.__wbindgen_closure_wrapper32958 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 15889, __wbg_adapter_38);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper37989 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 17814, __wbg_adapter_47);
+    imports.wbg.__wbindgen_closure_wrapper39042 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 18126, __wbg_adapter_47);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper38921 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 18155, __wbg_adapter_50);
+    imports.wbg.__wbindgen_closure_wrapper39987 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 18473, __wbg_adapter_50);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper39106 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 18214, __wbg_adapter_53);
+    imports.wbg.__wbindgen_closure_wrapper40175 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 18529, __wbg_adapter_53);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {
